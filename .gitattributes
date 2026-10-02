@@ -1,0 +1,4 @@
+* text=auto
+tests/fixtures/* -text
+*.sh text eol=lf
+.githooks/* text eol=lf
