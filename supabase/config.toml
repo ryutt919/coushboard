@@ -1,0 +1,22 @@
+# 로컬 개발 스택 설정 (supabase start). 운영 설정은 대시보드에서 하되, 스키마는 마이그레이션 파일로만 바꾼다.
+project_id = "coushboard"
+
+[api]
+enabled = true
+port = 54321
+schemas = ["public", "graphql_public"]
+max_rows = 1000
+
+[db]
+port = 54322
+major_version = 17
+
+[auth]
+enabled = true
+site_url = "http://localhost:5173"
+additional_redirect_urls = ["http://localhost:5173"]
+enable_signup = true
+
+[auth.email]
+enable_signup = true
+enable_confirmations = false
