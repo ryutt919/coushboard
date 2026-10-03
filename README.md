@@ -1,5 +1,7 @@
 # coushboard: 쿠팡 지출 대시보드
 
+배포 주소: https://coushboard.vercel.app (로그인 화면의 **예시 화면 보기**로 가입 없이 체험할 수 있습니다)
+
 쿠팡 주문목록 CSV를 브라우저에서 읽어 기간별, 카테고리별, 품목별 지출을 보여 주는 대시보드입니다.
 계산(파싱, 중복 제거, 분류, 집계)은 브라우저에서 하고, Supabase에는 원본 행과 사용자 설정만 저장합니다.
 
@@ -51,7 +53,7 @@ supabase status -o env  # API_URL, ANON_KEY 확인
    - **Confirm email**을 끄면 가입 즉시 로그인됩니다. 켜 두면 확인 메일의 링크를 누른 뒤 로그인합니다
      (기본 메일 발송은 시간당 횟수 제한이 있으므로 사용자가 늘면 자체 SMTP를 연결하세요).
    - Site URL과 Redirect URLs에 배포 도메인과 `http://localhost:5173` 을 등록합니다.
-4. Vercel 환경변수에는 `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` 두 개만 넣습니다.
+4. Vercel 환경변수에는 `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` 두 개만 넣습니다. anon 키는 공개용이라 CLI에서는 `vercel env add VITE_SUPABASE_ANON_KEY production --type config --value <키> --yes` 로 타입을 명시해야 저장됩니다. 배포는 `vercel deploy --prod` 입니다.
 
 ### 무료 플랜 프로젝트가 일시 중지되었을 때
 
