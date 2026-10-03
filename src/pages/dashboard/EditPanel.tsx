@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { fmt, tagColors } from '../../lib/format'
+import { CategoryPicker } from '../../components/CategoryPicker'
+import { fmt } from '../../lib/format'
 import { escapeRegex } from '../../lib/normalize'
-import { addKeyword, previewKeyword } from '../../lib/rulesTools'
+import { addCategory, addKeyword, previewKeyword } from '../../lib/rulesTools'
 import type { EnrichedRow } from '../../lib/types'
 import { useApp } from '../../state/AppState'
 
@@ -20,7 +21,6 @@ export function EditPanel({ row, onClose }: { row: EnrichedRow; onClose: () => v
     ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [row.key])
 
-  const options = rules.categories.map((c) => c.name)
   const preview = useMemo(
     () => (scope === 'rule' && kw.trim() ? previewKeyword(rules, app.prep.kept, escapeRegex(kw.trim()), cat) : []),
     [scope, kw, cat, rules, app.prep.kept],
@@ -71,22 +71,21 @@ export function EditPanel({ row, onClose }: { row: EnrichedRow; onClose: () => v
           지금: {row.category}
         </span>
       </div>
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12 }} role="group" aria-label="카테고리 선택">
-        {options.map((c) => {
-          const [bg, fg] = tagColors(c)
-          const on = cat === c
-          return (
-            <button
-              key={c}
-              type="button"
-              aria-pressed={on}
-              onClick={() => setCat(c)}
-              style={{ height: 36, padding: '0 12px', borderRadius: 6, fontSize: 13, fontWeight: 600, border: `1px solid ${on ? fg : 'var(--line-3)'}`, background: on ? bg : '#fff', color: on ? fg : 'var(--ink)' }}
-            >
-              {c}
-            </button>
-          )
-        })}
+      <div style={{ marginTop: 12 }}>
+        <CategoryPicker
+          rules={rules}
+          current={cat}
+          onPick={setCat}
+          onCreate={async (name) => {
+            try {
+              await app.saveRules(addCategory(rules, name))
+              setCat(name)
+              app.notify(`'${name}' 카테고리를 추가했습니다`)
+            } catch {
+              /* 오류 알림은 이미 표시됨 */
+            }
+          }}
+        />
       </div>
       <fieldset style={{ border: 0, padding: 0, margin: '14px 0 0', display: 'flex', flexDirection: 'column', gap: 4 }}>
         <legend className="sub" style={{ padding: 0, marginBottom: 4 }}>

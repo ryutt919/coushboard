@@ -5,6 +5,7 @@ import { yymm } from '../../lib/coverage'
 import { dot } from '../../lib/dates'
 import { csvEscape, downloadText, fmt, man } from '../../lib/format'
 import { selectRows } from '../../lib/pipeline'
+import { unitStats } from '../../lib/stats'
 import type { EnrichedRow, Summary } from '../../lib/types'
 import { useApp } from '../../state/AppState'
 import type { Period } from '../Dashboard'
@@ -12,6 +13,14 @@ import { labeler } from './chart'
 import { EditPanel } from './EditPanel'
 
 const PAGE = 10
+
+type SortKey = 'dt' | 'price' | 'amount'
+type SortDir = 'asc' | 'desc'
+const SORT_LABEL: Record<SortKey, [string, string]> = {
+  dt: ['거래일시 오래된 순', '거래일시 최근 순'],
+  price: ['1개당 가격 낮은 순', '1개당 가격 높은 순'],
+  amount: ['금액 낮은 순', '금액 높은 순'],
+}
 
 export function Overview({ period, sel, summary, cov }: { period: Period; sel: EnrichedRow[]; summary: Summary; cov: Coverage | null }) {
   const app = useApp()
@@ -21,6 +30,7 @@ export function Overview({ period, sel, summary, cov }: { period: Period; sel: E
   const [q, setQ] = useState('')
   const [shown, setShown] = useState(PAGE)
   const [edit, setEdit] = useState<EnrichedRow | null>(null)
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'dt', dir: 'desc' })
 
   const inRange = useMemo(() => selectRows(app.prep.kept, from, to, 'all'), [app.prep.kept, from, to])
   const ret = inRange.filter((r) => r.status === '반품완료')
@@ -44,7 +54,8 @@ export function Overview({ period, sel, summary, cov }: { period: Period; sel: E
   }
 
   const total = summary.total
-  const top = sel.reduce<EnrichedRow | null>((m, r) => (!m || r.amount > m.amount ? r : m), null)
+  // 가장 큰 구매와 상품당 평균은 상품 1개당 가격(판매가) 기준이다. 가격 x 수량(금액)이 아니다.
+  const { top, avgUnit } = unitStats(sel)
   const shownEnd = to > app.range.end ? app.range.end : to
 
   const cats = Object.entries(summary.by_category)
@@ -62,8 +73,40 @@ export function Overview({ period, sel, summary, cov }: { period: Period; sel: E
     return sel
       .filter((r) => !cat || r.category === cat)
       .filter((r) => !needle || r.name.toLowerCase().includes(needle))
-      .sort((a, b) => (a.dt < b.dt ? 1 : a.dt > b.dt ? -1 : b.idx - a.idx))
-  }, [sel, cat, q])
+      .sort((a, b) => {
+        // 정렬 기준이 같으면 항상 최근 거래가 먼저 오게 해서 순서가 흔들리지 않게 한다
+        const byDate = a.dt < b.dt ? 1 : a.dt > b.dt ? -1 : b.idx - a.idx
+        if (sort.key === 'dt') return sort.dir === 'desc' ? byDate : -byDate
+        const av = sort.key === 'price' ? a.price : a.amount
+        const bv = sort.key === 'price' ? b.price : b.amount
+        return av === bv ? byDate : sort.dir === 'desc' ? bv - av : av - bv
+      })
+  }, [sel, cat, q, sort])
+
+  function toggleSort(key: SortKey) {
+    setSort((s) => (s.key === key ? { key, dir: s.dir === 'desc' ? 'asc' : 'desc' } : { key, dir: 'desc' }))
+    setShown(PAGE)
+  }
+
+  const sortTh = (key: SortKey, label: string, align: 'left' | 'right' = 'left') => {
+    const on = sort.key === key
+    return (
+      <th scope="col" aria-sort={on ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'} style={{ textAlign: align }}>
+        <button
+          type="button"
+          onClick={() => toggleSort(key)}
+          data-testid={`sort-${key}`}
+          aria-label={`${label} 정렬${on ? (sort.dir === 'asc' ? ', 오름차순' : ', 내림차순') : ''}`}
+          style={{ border: 0, background: 'transparent', padding: 0, font: 'inherit', fontWeight: on ? 700 : 600, color: on ? 'var(--ink)' : 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}
+        >
+          {label}
+          <span aria-hidden="true" style={{ fontSize: 10, opacity: on ? 1 : 0.45 }}>
+            {on ? (sort.dir === 'asc' ? '▲' : '▼') : '↕'}
+          </span>
+        </button>
+      </th>
+    )
+  }
 
   function exportCsv() {
     const head = '거래일시,상품명,카테고리,판매가,수량,금액,상태'
@@ -102,18 +145,18 @@ export function Overview({ period, sel, summary, cov }: { period: Period; sel: E
         <div className="kpi">
           <div className="l">상품당 평균</div>
           <div className="v">
-            {sel.length ? fmt(total / sel.length) : '0'}
+            <span data-testid="kpi-avg">{fmt(avgUnit)}</span>
             <small>원</small>
           </div>
-          <div className="n">가격 × 수량 기준</div>
+          <div className="n">1개당 가격 기준 (수량 반영)</div>
         </div>
         <div className="kpi">
-          <div className="l">가장 큰 구매</div>
+          <div className="l">가장 큰 구매 (1개당 가격)</div>
           <div className="v">
-            {top ? fmt(top.amount) : '0'}
+            <span data-testid="kpi-max">{top ? fmt(top.price) : '0'}</span>
             <small>원</small>
           </div>
-          <div className="n">{top ? top.base + (top.qty > 1 ? ` × ${top.qty}` : '') : '—'}</div>
+          <div className="n">{top ? top.base : '—'}</div>
         </div>
       </section>
 
@@ -210,16 +253,15 @@ export function Overview({ period, sel, summary, cov }: { period: Period; sel: E
         </div>
         {edit && <EditPanel key={edit.key} row={edit} onClose={() => setEdit(null)} />}
         <div style={{ overflowX: 'auto' }}>
-          <table className="tbl" style={{ minWidth: 760 }} data-testid="rows">
+          <table className="tbl" style={{ minWidth: 820 }} data-testid="rows">
             <thead>
               <tr>
-                <th scope="col">거래일시</th>
+                {sortTh('dt', '거래일시')}
                 <th scope="col">상품</th>
                 <th scope="col">카테고리</th>
-                <th scope="col">가격 × 수량</th>
-                <th scope="col" style={{ textAlign: 'right' }}>
-                  금액
-                </th>
+                {sortTh('price', '1개당 가격')}
+                <th scope="col">수량</th>
+                {sortTh('amount', '금액', 'right')}
               </tr>
             </thead>
             <tbody>
@@ -246,15 +288,18 @@ export function Overview({ period, sel, summary, cov }: { period: Period; sel: E
                       </CatChip>
                     </button>
                   </td>
-                  <td style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                    {fmt(r.price)}원 × {r.qty}
+                  <td style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }} data-testid="row-price">
+                    {fmt(r.price)}원
                   </td>
-                  <td style={{ textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap' }}>{fmt(r.amount)}원</td>
+                  <td style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{r.qty}개</td>
+                  <td style={{ textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap' }} data-testid="row-amount">
+                    {fmt(r.amount)}원
+                  </td>
                 </tr>
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={5} className="sub" style={{ textAlign: 'center', padding: 28 }}>
+                  <td colSpan={6} className="sub" style={{ textAlign: 'center', padding: 28 }}>
                     조건에 맞는 결제 내역이 없습니다.
                   </td>
                 </tr>
@@ -264,7 +309,7 @@ export function Overview({ period, sel, summary, cov }: { period: Period; sel: E
         </div>
         <div style={{ padding: '14px 20px', borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }} className="sub">
           <span data-testid="count-label">
-            {sel.length}건 중 {filtered.length}건 · 최근 순 {Math.min(shown, filtered.length)}건 표시
+            {sel.length}건 중 {filtered.length}건 · {SORT_LABEL[sort.key][sort.dir === 'asc' ? 0 : 1]} {Math.min(shown, filtered.length)}건 표시
           </span>
           <div style={{ display: 'flex', gap: 8 }}>
             {filtered.length > shown && (

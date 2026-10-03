@@ -107,7 +107,7 @@ table.tbl th:last-child, table.tbl td:last-child { padding-right: 20px; }
 
 .catrow { display: block; width: 100%; text-align: left; padding: 10px 12px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--ink); }
 .catrow.on { border-color: var(--accent-line); background: var(--accent-soft); }
-.catrow.dim { opacity: 0.5; }
+.catrow.dim .meter > div { background: #b9bdc7 }
 .meter { height: 8px; background: var(--line-2); border-radius: 4px; margin-top: 6px; overflow: hidden; }
 .meter > div { height: 100%; border-radius: 4px; background: var(--accent); }
 

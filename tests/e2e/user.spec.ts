@@ -4,6 +4,7 @@ import { allowedHost, expectNoSeriousA11y, FIX, trackHosts } from './helpers'
 
 // 실제 Supabase(로컬 스택 또는 테스트 프로젝트) + 테스트 사용자. 픽스처만 사용한다.
 // 환경변수: E2E_EMAIL, E2E_PASSWORD (이 사용자는 테스트 전용이어야 한다. 시작할 때 데이터를 모두 지운다)
+// 에그밥솥은 확장 규칙으로 이미 생활용품이 되므로, 변경과 저장 유지를 확인하려고 디지털·전자로 바꾼다.
 // E2E_MODE=demo 이면 서버 없이 예시 화면(메모리 저장소)으로 같은 화면 시나리오를 돌린다(저장 유지 검사 8, 12 제외).
 const demo = process.env.E2E_MODE === 'demo'
 const email = process.env.E2E_EMAIL
@@ -40,14 +41,14 @@ async function ensureData(page: Page) {
   await expect(page.getByTestId('res-dedupe')).toHaveText('2행')
 }
 
-async function moveEggCookerToLiving(page: Page) {
+async function moveEggCookerToDigital(page: Page) {
     await page.getByRole('searchbox', { name: '상품명 검색' }).fill('에그밥솥')
     await page.getByTestId('row').first().getByRole('button', { name: /카테고리 변경/ }).click()
     const panel = page.getByRole('region', { name: '카테고리 바꾸기' })
-    await panel.getByRole('button', { name: '생활용품', exact: true }).click()
+    await panel.getByRole('button', { name: '디지털·전자', exact: true }).click()
     await panel.getByLabel('같은 품목 전부').check()
     await panel.getByRole('button', { name: '저장' }).click()
-    await expect(page.getByTestId('row').first()).toContainText('생활용품')
+    await expect(page.getByTestId('row').first()).toContainText('디지털·전자')
 }
 
 const total = (page: Page) => page.getByTestId('kpi-total')
@@ -115,26 +116,26 @@ test.describe('H5: 화면 E2E (Supabase)', () => {
     await ensureData(page)
     await page.goto('/#/')
     await allPeriod(page)
-    await moveEggCookerToLiving(page)
+    await moveEggCookerToDigital(page)
     if (demo) return // 예시 화면은 새로고침하면 초기화되므로 저장 유지는 Supabase 모드에서만 검사한다
 
     await page.reload()
     await page.getByRole('searchbox', { name: '상품명 검색' }).fill('에그밥솥')
-    await expect(page.getByTestId('row').first()).toContainText('생활용품')
+    await expect(page.getByTestId('row').first()).toContainText('디지털·전자')
 
     await page.getByRole('button', { name: '로그아웃' }).click()
     await expect(page.getByRole('heading', { name: '로그인' })).toBeVisible()
     await login(page)
     await page.getByRole('searchbox', { name: '상품명 검색' }).fill('에그밥솥')
-    await expect(page.getByTestId('row').first()).toContainText('생활용품')
+    await expect(page.getByTestId('row').first()).toContainText('디지털·전자')
   })
 
   test('9: 규칙과 지정 내역 내보내기, 초기화, 가져오기로 같은 숫자가 복원된다', async ({ page }, info) => {
     await ensureData(page)
     await page.goto('/#/')
     await allPeriod(page)
-    if (demo) await moveEggCookerToLiving(page)
-    const before = ((await page.getByTestId('cat-생활용품').textContent()) ?? '').replace(/\s+/g, ' ').trim()
+    if (demo) await moveEggCookerToDigital(page)
+    const before = ((await page.getByTestId('cat-디지털·전자').textContent()) ?? '').replace(/\s+/g, ' ').trim()
 
     await page.goto('/#/categories')
     const dl = page.waitForEvent('download')
@@ -153,7 +154,7 @@ test.describe('H5: 화면 E2E (Supabase)', () => {
     await expect(page.getByTestId('st-manual')).not.toContainText(/^0/, { timeout: 15000 })
     await page.goto('/#/')
     await allPeriod(page)
-    await expect(page.getByTestId('cat-생활용품')).toHaveText(before)
+    await expect(page.getByTestId('cat-디지털·전자')).toHaveText(before)
   })
 
   test('11: 같은 파일을 두 번 올리면 안내하고 데이터는 그대로다', async ({ page }) => {

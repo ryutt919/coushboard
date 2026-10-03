@@ -36,6 +36,8 @@ export interface CategoryDef {
 
 export interface RulesConfig {
   version?: number
+  /** 어느 버전의 확장 키워드(category-rules-extra.json)까지 반영했는지. 없으면 0 */
+  extrasVersion?: number
   fallback: string
   note?: string
   categories: CategoryDef[]

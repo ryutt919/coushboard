@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react'
+import { OK_STATUSES } from '../lib/types'
 import { useApp } from '../state/AppState'
 
 export type Route = 'dashboard' | 'upload' | 'categories'
 
 export function Layout({ route, children, actions }: { route: Route; children: ReactNode; actions?: ReactNode }) {
   const app = useApp()
-  const unclassified = app.prep.kept.filter((r) => r.category === app.settings.rules.fallback).length
+  const unclassified = app.prep.kept.filter((r) => OK_STATUSES.has(r.status) && r.category === app.settings.rules.fallback).length
   const demo = app.mode === 'demo'
   return (
     <div className="shell">

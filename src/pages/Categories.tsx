@@ -1,11 +1,23 @@
 import { useMemo, useRef, useState } from 'react'
+import { CategoryPicker } from '../components/CategoryPicker'
 import { CatChip } from '../components/Common'
 import { Layout } from '../components/Layout'
 import { downloadText, fmt, tagColors } from '../lib/format'
 import { escapeRegex } from '../lib/normalize'
-import { addExclusions, addKeyword, findConflicts, keywordStats, previewKeyword, removeKeyword } from '../lib/rulesTools'
+import {
+  addCategory,
+  addExclusions,
+  addKeyword,
+  categoryNameProblem,
+  findConflicts,
+  keywordStats,
+  previewKeyword,
+  removeCategory,
+  removeKeyword,
+} from '../lib/rulesTools'
 import { parseBundle, toBundle } from '../lib/stored'
 import type { RulesConfig } from '../lib/types'
+import { OK_STATUSES } from '../lib/types'
 import { useApp } from '../state/AppState'
 
 const SHOW_ITEMS = 10
@@ -21,14 +33,13 @@ export function Categories() {
   const app = useApp()
   const { rules } = app.settings
   const fallback = rules.fallback
-  const kept = app.prep.kept
+  // 이 화면은 받은 상품(배송완료, 교환완료, 배송중)만 다룬다. 반품, 취소 행은 나오지 않는다.
+  const okRows = useMemo(() => app.prep.kept.filter((r) => OK_STATUSES.has(r.status)), [app.prep.kept])
   const importRef = useRef<HTMLInputElement>(null)
 
   const [sameAll, setSameAll] = useState(true)
   const [showAll, setShowAll] = useState(false)
   const [picked, setPicked] = useState<Record<string, { category: string; keys: string[]; group: boolean }>>({})
-  const [newCatFor, setNewCatFor] = useState<string | null>(null)
-  const [newCatName, setNewCatName] = useState('')
 
   const init = useMemo(initialFromHash, [])
   const [kw, setKw] = useState(init.kw)
@@ -37,18 +48,45 @@ export function Categories() {
   const [openConflict, setOpenConflict] = useState<string | null>(null)
   const [kwExpanded, setKwExpanded] = useState<Record<string, boolean>>({})
   const [addCat, setAddCat] = useState('')
+  const [addCatErr, setAddCatErr] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
   const [resetStep, setResetStep] = useState(false)
 
   const catNames = rules.categories.map((c) => c.name)
-  const classified = kept.filter((r) => r.auto_category !== fallback).length
-  const unclassifiedRows = kept.filter((r) => r.category === fallback).length
-  const manualRows = kept.filter((r) => r.manual).length
-  const conflicts = useMemo(() => findConflicts(rules, kept), [rules, kept])
-  const stats = useMemo(() => keywordStats(rules, kept), [rules, kept])
+  const classified = okRows.filter((r) => r.auto_category !== fallback).length
+  const unclassifiedRows = okRows.filter((r) => r.category === fallback).length
+  const manualRows = okRows.filter((r) => r.manual).length
+
+  // 품목별 현재 분류와 "직접 정했는지"
+  const baseInfo = useMemo(() => {
+    const m = new Map<string, { category: string; manual: boolean; n: number }>()
+    for (const r of okRows) {
+      const e = m.get(r.base)
+      if (!e) m.set(r.base, { category: r.category, manual: r.manual, n: 1 })
+      else {
+        e.n += 1
+        e.manual = e.manual && r.manual
+      }
+    }
+    return m
+  }, [okRows])
+
+  const conflicts = useMemo(() => findConflicts(rules, okRows), [rules, okRows])
+  const conflictView = useMemo(
+    () =>
+      conflicts.map((c) => {
+        const products = c.products.map((p) => ({ ...p, current: baseInfo.get(p.base)?.category ?? c.category, decided: baseInfo.get(p.base)?.manual ?? false }))
+        return { ...c, products, open: products.filter((p) => !p.decided).length }
+      }),
+    [conflicts, baseInfo],
+  )
+  const pendingConflicts = conflictView.filter((c) => c.open > 0)
+  const pendingProducts = new Set(pendingConflicts.flatMap((c) => c.products.filter((p) => !p.decided).map((p) => p.base))).size
+  const stats = useMemo(() => keywordStats(rules, okRows), [rules, okRows])
 
   const items = useMemo(() => {
     const m = new Map<string, { base: string; n: number; amount: number; rows: string[] }>()
-    for (const r of kept) {
+    for (const r of okRows) {
       if (r.category !== fallback && !picked[r.base]) continue
       const e = m.get(r.base) ?? { base: r.base, n: 0, amount: 0, rows: [] }
       e.n += 1
@@ -57,12 +95,12 @@ export function Categories() {
       m.set(r.base, e)
     }
     return [...m.values()].sort((a, b) => b.n - a.n || b.amount - a.amount || (a.base < b.base ? -1 : 1))
-  }, [kept, fallback, picked])
+  }, [okRows, fallback, picked])
   const pendingKinds = items.filter((i) => !picked[i.base]).length
 
   const preview = useMemo(
-    () => (kw.trim() && ruleCat ? previewKeyword(rules, kept, escapeRegex(kw.trim()), ruleCat) : []),
-    [kw, ruleCat, rules, kept],
+    () => (kw.trim() && ruleCat ? previewKeyword(rules, okRows, escapeRegex(kw.trim()), ruleCat) : []),
+    [kw, ruleCat, rules, okRows],
   )
   const isChecked = (p: { base: string; checked: boolean }) => (unchecked.has(p.base) ? !p.checked : p.checked)
   const willChange = preview.filter((p) => isChecked(p) && (p.kind === 'new' || p.kind === 'warn')).reduce((a, p) => a + p.count, 0)
@@ -76,13 +114,27 @@ export function Categories() {
     }
   }
 
+  async function createCategory(name: string): Promise<boolean> {
+    const problem = categoryNameProblem(rules, name)
+    if (problem) {
+      app.notify(problem, true)
+      return false
+    }
+    try {
+      await app.saveRules(addCategory(rules, name.trim()))
+      return true
+    } catch {
+      return false
+    }
+  }
+
   async function pick(base: string, rows: string[], category: string) {
     await guard(async () => {
       if (sameAll) {
         await app.setGroupOverride(base, category)
         setPicked((p) => ({ ...p, [base]: { category, keys: [], group: true } }))
       } else {
-        const keys = kept.filter((r) => r.base === base && r.category === fallback).map((r) => r.key)
+        const keys = okRows.filter((r) => r.base === base && r.category === fallback).map((r) => r.key)
         await app.setRowOverrides(keys.length ? keys : rows, category)
         setPicked((p) => ({ ...p, [base]: { category, keys: keys.length ? keys : rows, group: false } }))
       }
@@ -124,16 +176,30 @@ export function Categories() {
     await guard(() => app.saveRules({ ...rules, categories: cats }))
   }
 
-  async function addCategory() {
-    const name = addCat.trim()
-    if (!name || rules.categories.some((c) => c.name === name) || name === fallback) {
-      app.notify('이미 있거나 쓸 수 없는 이름입니다', true)
+  async function submitAddCategory() {
+    const problem = categoryNameProblem(rules, addCat)
+    if (problem) {
+      setAddCatErr(problem)
       return
     }
-    await guard(async () => {
-      await app.saveRules({ ...rules, categories: [...rules.categories, { name, keywords: [] }] })
+    setAddCatErr(null)
+    if (await createCategory(addCat)) {
+      app.notify(`'${addCat.trim()}' 카테고리를 추가했습니다`)
       setAddCat('')
-    }, `'${name}' 카테고리를 추가했습니다`)
+    }
+  }
+
+  async function deleteCategory(name: string) {
+    await guard(async () => {
+      // 이 카테고리로 직접 지정한 것은 풀어서 규칙이나 미분류로 돌아가게 한다
+      const { row, group } = app.settings.overrides
+      for (const [base, cat] of Object.entries(group)) if (cat === name) await app.setGroupOverride(base, null)
+      const rowKeys = Object.entries(row).filter(([, cat]) => cat === name).map(([k]) => k)
+      if (rowKeys.length) await app.setRowOverrides(rowKeys, null)
+      await app.saveRules(removeCategory(rules, name))
+      setDeleting(null)
+      setPicked({})
+    }, `'${name}' 카테고리를 삭제했습니다`)
   }
 
   function exportRules() {
@@ -192,7 +258,7 @@ export function Categories() {
         <div>
           <h1 style={{ fontSize: 24, fontWeight: 700 }}>카테고리 정리</h1>
           <div className="sub">
-            {app.mode === 'demo' ? '예시 화면이라 저장되지 않습니다' : '직접 고친 분류와 규칙은 내 계정에 저장됩니다'}
+            {app.mode === 'demo' ? '예시 화면이라 저장되지 않습니다' : '직접 고친 분류와 규칙은 내 계정에 저장됩니다'} · 받은 상품(배송완료, 교환완료, 배송중)만 보여 줍니다. 반품, 취소된 상품은 나오지 않습니다.
           </div>
         </div>
 
@@ -207,7 +273,7 @@ export function Categories() {
             <div className="l">규칙으로 분류됨</div>
             <div className="v" style={{ fontSize: 26, marginTop: 4 }} data-testid="st-auto">
               {classified}
-              <small style={{ fontSize: 15 }}> / {kept.length}</small>
+              <small style={{ fontSize: 15 }}> / {okRows.length}</small>
             </div>
           </div>
           <div className="kpi" style={{ padding: '16px 20px' }}>
@@ -225,9 +291,9 @@ export function Categories() {
             </div>
           </div>
           <div className="kpi" style={{ padding: '16px 20px' }}>
-            <div className="l">확인할 규칙 충돌</div>
+            <div className="l">직접 확인할 상품</div>
             <div className="v" style={{ fontSize: 26, marginTop: 4, color: 'var(--warn-ink)' }} data-testid="st-conflicts">
-              {conflicts.length}
+              {pendingProducts}
               <small style={{ fontSize: 15, color: 'var(--ink)' }}>개</small>
             </div>
           </div>
@@ -241,6 +307,70 @@ export function Categories() {
           <span aria-hidden="true">›</span>
           <span style={{ height: 26, padding: '0 10px', borderRadius: 13, background: '#f1f2f4', display: 'inline-flex', alignItems: 'center', color: 'var(--ink)' }}>3 미분류</span>
         </div>
+
+        <section className="card card-pad" aria-label="카테고리 종류" data-testid="category-manager">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <h2 className="h2">카테고리 종류</h2>
+              <div className="sub" style={{ marginTop: 2 }}>필요한 카테고리를 직접 추가하거나 지울 수 있습니다 (예: 의류, 반려동물, 자동차)</div>
+            </div>
+            <span style={{ display: 'inline-flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              <input
+                className="input"
+                aria-label="새 카테고리 이름"
+                placeholder="새 카테고리 이름"
+                data-testid="new-category-input"
+                value={addCat}
+                onChange={(e) => {
+                  setAddCat(e.target.value)
+                  setAddCatErr(null)
+                }}
+                onKeyDown={(e) => e.key === 'Enter' && void submitAddCategory()}
+              />
+              <button type="button" className="btn sm primary" data-testid="new-category-add" onClick={() => void submitAddCategory()}>
+                + 카테고리 추가
+              </button>
+            </span>
+          </div>
+          {addCatErr && (
+            <div role="alert" style={{ color: 'var(--bad)', fontSize: 13, marginTop: 6 }}>
+              {addCatErr}
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14 }}>
+            {rules.categories.map((c) => {
+              const n = okRows.filter((r) => r.category === c.name).length
+              const [bg, fg] = tagColors(c.name)
+              return (
+                <span key={c.name} data-testid="category-chip" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, height: 36, padding: '0 6px 0 12px', borderRadius: 8, background: bg, color: fg, fontSize: 14, fontWeight: 600 }}>
+                  {c.name} <span style={{ fontWeight: 400, fontSize: 12 }}>{n}건</span>
+                  {deleting === c.name ? (
+                    <>
+                      <button type="button" className="btn sm danger" style={{ height: 28, padding: '0 8px' }} onClick={() => void deleteCategory(c.name)}>
+                        삭제
+                      </button>
+                      <button type="button" className="btn sm" style={{ height: 28, padding: '0 8px' }} onClick={() => setDeleting(null)}>
+                        취소
+                      </button>
+                    </>
+                  ) : (
+                    <button type="button" aria-label={`${c.name} 카테고리 삭제`} onClick={() => setDeleting(c.name)} style={{ width: 24, height: 24, border: 0, borderRadius: 12, background: 'rgba(255,255,255,0.7)', color: 'var(--muted)', fontSize: 12, padding: 0 }}>
+                      ✕
+                    </button>
+                  )}
+                </span>
+              )
+            })}
+            <span style={{ display: 'inline-flex', alignItems: 'center', height: 36, padding: '0 12px', borderRadius: 8, background: '#f1f2f4', color: '#4a4f5a', fontSize: 14, fontWeight: 600 }}>
+              {fallback} <span style={{ fontWeight: 400, fontSize: 12, marginLeft: 6 }}>{unclassifiedRows}건 · 기본 항목</span>
+            </span>
+          </div>
+          {deleting && (
+            <div className="sub" style={{ marginTop: 10 }}>
+              '{deleting}'을(를) 지우면 이 카테고리로 직접 지정한 것과 키워드 규칙이 함께 사라지고, 해당 상품은 다른 규칙이나 미분류로 돌아갑니다.
+            </div>
+          )}
+        </section>
 
         <div className="cols">
           <section className="card" style={{ overflow: 'hidden' }} aria-label="미분류 상품">
@@ -283,38 +413,14 @@ export function Categories() {
                         </button>
                       </div>
                     ) : (
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
-                        {catNames.map((c) => (
-                          <button key={c} type="button" onClick={() => void pick(it.base, it.rows, c)} style={{ height: 36, padding: '0 10px', borderRadius: 6, fontSize: 13, fontWeight: 500, border: '1px solid var(--line-3)', background: '#fff', color: 'var(--ink)' }}>
-                            {c}
-                          </button>
-                        ))}
-                        {newCatFor === it.base ? (
-                          <span style={{ display: 'inline-flex', gap: 6 }}>
-                            <input className="input" style={{ height: 36, width: 130 }} aria-label="새 카테고리 이름" value={newCatName} onChange={(e) => setNewCatName(e.target.value)} />
-                            <button
-                              type="button"
-                              className="btn sm primary"
-                              style={{ height: 36 }}
-                              onClick={() =>
-                                void guard(async () => {
-                                  const name = newCatName.trim()
-                                  if (!name || name === fallback) return
-                                  if (!rules.categories.some((c) => c.name === name)) await app.saveRules({ ...rules, categories: [...rules.categories, { name, keywords: [] }] })
-                                  await pick(it.base, it.rows, name)
-                                  setNewCatFor(null)
-                                  setNewCatName('')
-                                })
-                              }
-                            >
-                              추가하고 지정
-                            </button>
-                          </span>
-                        ) : (
-                          <button type="button" onClick={() => setNewCatFor(it.base)} style={{ height: 36, padding: '0 10px', borderRadius: 6, fontSize: 13, fontWeight: 500, border: '1px dashed var(--accent-line)', background: '#fff', color: 'var(--accent)' }}>
-                            + 새 카테고리
-                          </button>
-                        )}
+                      <div style={{ marginTop: 8 }}>
+                        <CategoryPicker
+                          rules={rules}
+                          onPick={(c) => void pick(it.base, it.rows, c)}
+                          onCreate={async (name) => {
+                            if (await createCategory(name)) await pick(it.base, it.rows, name)
+                          }}
+                        />
                       </div>
                     )}
                   </div>
@@ -339,121 +445,150 @@ export function Categories() {
             )}
           </section>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            <section className="card card-pad" aria-label="규칙 추가">
-              <h2 className="h2">규칙 추가</h2>
-              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10, marginTop: 12 }}>
-                <label className="field">
-                  상품명에 이 단어가 있으면
-                  <input
-                    className="input lg"
-                    style={{ borderColor: 'var(--accent)' }}
-                    data-testid="rule-keyword"
-                    value={kw}
-                    onChange={(e) => {
-                      setKw(e.target.value)
-                      setUnchecked(new Set())
-                    }}
-                  />
-                </label>
-                <label className="field">
-                  이 카테고리로
-                  <select className="input lg" style={{ background: '#fff' }} data-testid="rule-category" value={ruleCat} onChange={(e) => setRuleCat(e.target.value)}>
-                    {catNames.map((c) => (
-                      <option key={c}>{c}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-              <div style={{ marginTop: 14, border: '1px solid var(--line-2)', borderRadius: 10, overflow: 'hidden' }} data-testid="rule-preview">
-                <div style={{ padding: '10px 14px', background: 'var(--surface-2)', fontSize: 13, display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontWeight: 600 }}>
-                    미리보기 · {kw.trim() ? `${preview.length}개 품목이 걸립니다` : '단어를 입력하세요'}
-                  </span>
-                  <span className="sub">체크 해제 = 예외</span>
-                </div>
-                <div style={{ maxHeight: 260, overflowY: 'auto' }}>
-                  {preview.slice(0, 40).map((p) => (
-                    <label key={p.base} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderTop: '1px solid var(--line-2)', fontSize: 14, minHeight: 28 }}>
-                      <input
-                        type="checkbox"
-                        checked={isChecked(p)}
-                        onChange={() => {
-                          const n = new Set(unchecked)
-                          if (n.has(p.base)) n.delete(p.base)
-                          else n.add(p.base)
-                          setUnchecked(n)
-                        }}
-                        style={{ width: 18, height: 18, accentColor: 'var(--accent)', flexShrink: 0 }}
-                      />
-                      <span className="ellipsis" style={{ flexGrow: 1 }}>
-                        {p.base}
-                      </span>
-                      <span style={{ fontSize: 12, whiteSpace: 'nowrap', fontWeight: 600, color: p.kind === 'warn' || p.kind === 'blocked' ? 'var(--warn-ink)' : p.kind === 'new' ? 'var(--good)' : 'var(--muted)' }}>{p.note}</span>
-                    </label>
+          <section className="card card-pad" aria-label="규칙 추가">
+            <h2 className="h2">규칙 추가</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)', gap: 10, marginTop: 12 }}>
+              <label className="field">
+                상품명에 이 단어가 있으면
+                <input
+                  className="input lg"
+                  style={{ borderColor: 'var(--accent)' }}
+                  data-testid="rule-keyword"
+                  value={kw}
+                  onChange={(e) => {
+                    setKw(e.target.value)
+                    setUnchecked(new Set())
+                  }}
+                />
+              </label>
+              <label className="field">
+                이 카테고리로
+                <select className="input lg" style={{ background: '#fff' }} data-testid="rule-category" value={ruleCat} onChange={(e) => setRuleCat(e.target.value)}>
+                  {catNames.map((c) => (
+                    <option key={c}>{c}</option>
                   ))}
-                  {preview.length > 40 && <div className="sub" style={{ padding: '8px 14px', borderTop: '1px solid var(--line-2)' }}>… 외 {preview.length - 40}개</div>}
-                </div>
+                </select>
+              </label>
+            </div>
+            <div style={{ marginTop: 14, border: '1px solid var(--line-2)', borderRadius: 10, overflow: 'hidden' }} data-testid="rule-preview">
+              <div style={{ padding: '10px 14px', background: 'var(--surface-2)', fontSize: 13, display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ fontWeight: 600 }}>미리보기 · {kw.trim() ? `${preview.length}개 품목이 걸립니다` : '단어를 입력하세요'}</span>
+                <span className="sub">체크 해제 = 예외</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
-                <button type="button" className="btn sm" onClick={() => { setKw(''); setUnchecked(new Set()) }}>
-                  취소
-                </button>
-                <button type="button" className="btn sm primary" disabled={!kw.trim() || !ruleCat} data-testid="rule-save" onClick={() => void saveRule()}>
-                  규칙 저장 · {willChange}건 적용
-                </button>
+              <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+                {preview.slice(0, 40).map((p) => (
+                  <label key={p.base} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', borderTop: '1px solid var(--line-2)', fontSize: 14, minHeight: 28 }}>
+                    <input
+                      type="checkbox"
+                      checked={isChecked(p)}
+                      onChange={() => {
+                        const n = new Set(unchecked)
+                        if (n.has(p.base)) n.delete(p.base)
+                        else n.add(p.base)
+                        setUnchecked(n)
+                      }}
+                      style={{ width: 18, height: 18, accentColor: 'var(--accent)', flexShrink: 0 }}
+                    />
+                    <span className="ellipsis" style={{ flexGrow: 1 }}>
+                      {p.base}
+                    </span>
+                    <span style={{ fontSize: 12, whiteSpace: 'nowrap', fontWeight: 600, color: p.kind === 'warn' || p.kind === 'blocked' ? 'var(--warn-ink)' : p.kind === 'new' ? 'var(--good)' : 'var(--muted)' }}>{p.note}</span>
+                  </label>
+                ))}
+                {preview.length > 40 && <div className="sub" style={{ padding: '8px 14px', borderTop: '1px solid var(--line-2)' }}>… 외 {preview.length - 40}개</div>}
               </div>
-            </section>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 14 }}>
+              <button type="button" className="btn sm" onClick={() => { setKw(''); setUnchecked(new Set()) }}>
+                취소
+              </button>
+              <button type="button" className="btn sm primary" disabled={!kw.trim() || !ruleCat} data-testid="rule-save" onClick={() => void saveRule()}>
+                규칙 저장 · {willChange}건 적용
+              </button>
+            </div>
+          </section>
+        </div>
 
-            <section className="card" style={{ overflow: 'hidden' }} aria-label="규칙 충돌">
-              <div className="card-head" style={{ display: 'block' }}>
-                <h2 className="h2">확인할 규칙 충돌</h2>
-                <div className="sub" style={{ marginTop: 2 }}>
-                  한 키워드가 성격이 다른 상품을 함께 잡고 있습니다
+        <section className="card" style={{ overflow: 'hidden' }} aria-label="직접 확인할 상품" data-testid="review-section">
+          <div className="card-head" style={{ display: 'block' }}>
+            <h2 className="h2">직접 확인할 상품</h2>
+            <div className="sub" style={{ marginTop: 2 }}>
+              뜻이 여러 가지로 쓰이는 단어(예: 마사지, 케이블, 바디)에 걸린 상품입니다. 상품마다 맞는 카테고리를 직접 골라 주세요. 고르면 이 상품은 이후에도 그 카테고리로 고정됩니다.
+            </div>
+          </div>
+          {conflictView.length === 0 && (
+            <div className="sub" style={{ padding: 20 }}>
+              지금은 확인할 상품이 없습니다.
+            </div>
+          )}
+          {conflictView.slice(0, 12).map((c) => {
+            const id = `${c.category}|${c.keyword}`
+            const open = openConflict === id || (openConflict === null && c.open > 0 && conflictView.filter((x) => x.open > 0)[0] === c)
+            return (
+              <div key={id} style={{ padding: '14px 20px', borderBottom: '1px solid var(--line-2)', opacity: c.open === 0 ? 0.65 : 1 }} data-testid="conflict">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ height: 28, padding: '0 10px', borderRadius: 6, background: 'var(--warn-bg)', color: 'var(--warn-ink)', fontWeight: 700, fontSize: 14, display: 'inline-flex', alignItems: 'center' }}>{c.label}</span>
+                  <span className="sub">
+                    {c.total}건 · {c.split.map((s) => `${s.category} ${s.n}`).join(' · ')}
+                  </span>
+                  <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 600, color: c.open === 0 ? 'var(--good)' : 'var(--warn-ink)' }}>{c.open === 0 ? '모두 확인함' : `확인할 상품 ${c.open}개`}</span>
+                  <button type="button" className="btn sm" aria-expanded={open} onClick={() => setOpenConflict(open ? '' : id)}>
+                    {open ? '접기' : '상품 확인하기'}
+                  </button>
                 </div>
-              </div>
-              {conflicts.length === 0 && (
-                <div className="sub" style={{ padding: 20 }}>
-                  지금은 충돌하는 규칙이 없습니다.
-                </div>
-              )}
-              {conflicts.slice(0, 8).map((c) => {
-                const id = `${c.category}|${c.keyword}`
-                const open = openConflict === id
-                return (
-                  <div key={id} style={{ padding: '14px 20px', borderBottom: '1px solid var(--line-2)' }} data-testid="conflict">
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ height: 28, padding: '0 10px', borderRadius: 6, background: 'var(--warn-bg)', color: 'var(--warn-ink)', fontWeight: 700, fontSize: 14, display: 'inline-flex', alignItems: 'center' }}>{c.label}</span>
-                      <span className="sub">
-                        {c.total}건 · {c.split.map((s) => `${s.category} ${s.n}`).join(' · ')}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 8, lineHeight: 1.6 }}>
-                      '{c.label}'은(는) {c.category} 규칙에 있지만, 이 단어가 없다면 다른 카테고리에 속했을 상품 {c.products.length}개를 가져가고 있습니다.
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
-                      <button type="button" className="btn sm" onClick={() => setOpenConflict(open ? null : id)}>
-                        {open ? '접기' : '걸린 상품 보기'}
-                      </button>
-                      <button type="button" className="btn sm" onClick={() => void guard(() => app.saveRules(addExclusions(rules, c.keyword, c.products.map((p) => p.base))), `${c.products.length}개 품목을 예외로 등록했습니다`)}>
-                        이 상품들은 예외로
-                      </button>
-                    </div>
-                    {open && (
-                      <ul style={{ margin: '10px 0 0', paddingLeft: 20, fontSize: 13, lineHeight: 1.7 }}>
-                        {c.products.slice(0, 12).map((p) => (
-                          <li key={p.base}>
-                            {p.base} <span className="sub">→ {p.alt}</span>
-                          </li>
-                        ))}
-                      </ul>
+                {open && (
+                  <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {c.products.slice(0, 15).map((p) => (
+                      <div key={p.base} style={{ border: '1px solid var(--line-2)', borderRadius: 10, padding: '10px 12px' }} data-testid="review-item">
+                        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'baseline' }}>
+                          <span className="ellipsis" style={{ fontSize: 14, fontWeight: 600 }}>
+                            {p.base}
+                          </span>
+                          <span className="sub" style={{ whiteSpace: 'nowrap', fontSize: 12 }}>
+                            {p.count}건 · 지금 {p.current}
+                            {p.alt !== p.current && ` · '${c.label}' 없이는 ${p.alt}`}
+                          </span>
+                        </div>
+                        <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                          <CategoryPicker
+                            rules={rules}
+                            current={p.decided ? p.current : undefined}
+                            onPick={(cat) => void guard(() => app.setGroupOverride(p.base, cat), `'${p.base}'을(를) ${cat}(으)로 지정했습니다`)}
+                            onCreate={async (name) => {
+                              if (await createCategory(name)) await guard(() => app.setGroupOverride(p.base, name), `'${name}'(으)로 지정했습니다`)
+                            }}
+                            size={32}
+                          />
+                          {p.decided && (
+                            <button type="button" className="btn ghost" style={{ height: 32, padding: '0 8px', fontSize: 13 }} onClick={() => void guard(() => app.setGroupOverride(p.base, null))}>
+                              되돌리기
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {c.products.length > 15 && <div className="sub">… 외 {c.products.length - 15}개</div>}
+                    {c.open > 0 && (
+                      <div>
+                        <button
+                          type="button"
+                          className="btn sm"
+                          onClick={() =>
+                            void guard(async () => {
+                              for (const p of c.products.filter((x) => !x.decided)) await app.setGroupOverride(p.base, p.current)
+                            }, '지금 분류를 그대로 확정했습니다')
+                          }
+                        >
+                          남은 {c.open}개를 지금 분류 그대로 확정
+                        </button>
+                      </div>
                     )}
                   </div>
-                )
-              })}
-            </section>
-          </div>
-        </div>
+                )}
+              </div>
+            )
+          })}
+        </section>
 
         <section className="card" style={{ overflow: 'hidden' }} aria-label="키워드 규칙">
           <div className="card-head">
@@ -461,18 +596,12 @@ export function Categories() {
               <h2 className="h2">키워드 규칙</h2>
               <div className="sub" style={{ marginTop: 2 }}>숫자 = 이 단어가 들어간 상품 수 · 위에 있는 카테고리가 먼저 적용됩니다</div>
             </div>
-            <span style={{ display: 'inline-flex', gap: 6 }}>
-              <input className="input" aria-label="새 카테고리 이름" placeholder="새 카테고리 이름" value={addCat} onChange={(e) => setAddCat(e.target.value)} />
-              <button type="button" className="btn sm" onClick={() => void addCategory()}>
-                + 카테고리 추가
-              </button>
-            </span>
           </div>
           {rules.categories.map((c, i) => {
             const list = stats.filter((s) => s.category === c.name).sort((a, b) => b.count - a.count)
             const expanded = kwExpanded[c.name]
             const shown = expanded ? list : list.slice(0, SHOW_KW)
-            const total = kept.filter((r) => r.category === c.name).length
+            const total = okRows.filter((r) => r.category === c.name).length
             const [bg, fg] = tagColors(c.name)
             return (
               <div key={c.name} style={{ display: 'grid', gridTemplateColumns: '210px minmax(0, 1fr)', gap: 16, padding: '14px 20px', borderBottom: '1px solid var(--line-2)', alignItems: 'start' }}>

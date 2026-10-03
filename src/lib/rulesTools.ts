@@ -90,7 +90,8 @@ export interface Conflict {
   total: number
   /** 이 키워드가 없었다면 속했을 카테고리별 품목 수 */
   split: { category: string; n: number }[]
-  products: { base: string; alt: string }[]
+  /** 이 키워드 때문에 현재 분류가 갈린 품목(직접 확인 대상) */
+  products: { base: string; alt: string; count: number }[]
 }
 
 /**
@@ -101,18 +102,22 @@ export function findConflicts(rules: RulesConfig, rows: EnrichedRow[]): Conflict
   const clf = compileRules(rules)
   const out: Conflict[] = []
   const byBase = new Map<string, EnrichedRow>()
-  for (const r of rows) if (!byBase.has(r.base)) byBase.set(r.base, r)
+  const baseCount = new Map<string, number>()
+  for (const r of rows) {
+    if (!byBase.has(r.base)) byBase.set(r.base, r)
+    baseCount.set(r.base, (baseCount.get(r.base) ?? 0) + 1)
+  }
   for (const c of rules.categories) {
     for (const kw of c.keywords) {
       const rx = new RegExp(kw)
-      const hit: { base: string; alt: string }[] = []
+      const hit: { base: string; alt: string; count: number }[] = []
       let total = 0
       for (const r of rows) if (rx.test(r.name)) total += 1
       for (const [base, r] of byBase) {
         if (!rx.test(r.name)) continue
         // 이 키워드가 이 카테고리의 첫 걸림일 때만 의미가 있다
         if (clf.classify(r.name, base) !== c.name) continue
-        hit.push({ base, alt: clf.classifyWithout(r.name, base, c.name, kw) ?? c.name })
+        hit.push({ base, alt: clf.classifyWithout(r.name, base, c.name, kw) ?? c.name, count: baseCount.get(base) ?? 0 })
       }
       if (hit.length < 2) continue
       const split = new Map<string, number>()
@@ -149,4 +154,26 @@ export function addExclusions(rules: RulesConfig, keyword: string, bases: string
   const have = new Set((rules.exclusions ?? []).map((e) => `${e.keyword}\u0000${e.base}`))
   const add = bases.filter((b) => !have.has(`${keyword}\u0000${b}`)).map((base) => ({ keyword, base }))
   return { ...rules, exclusions: [...(rules.exclusions ?? []), ...add] }
+}
+
+export function addCategory(rules: RulesConfig, name: string): RulesConfig {
+  return { ...rules, categories: [...rules.categories, { name, keywords: [] }] }
+}
+
+export function removeCategory(rules: RulesConfig, name: string): RulesConfig {
+  return {
+    ...rules,
+    categories: rules.categories.filter((c) => c.name !== name),
+    exclusions: (rules.exclusions ?? []).filter((e) => !rules.categories.find((c) => c.name === name)?.keywords.includes(e.keyword)),
+  }
+}
+
+/** 새 카테고리 이름 검사. 문제가 있으면 사유를 돌려준다 */
+export function categoryNameProblem(rules: RulesConfig, raw: string): string | null {
+  const name = raw.trim()
+  if (!name) return '이름을 입력해 주세요'
+  if (name.length > 20) return '이름은 20자 이하로 해 주세요'
+  if (name === rules.fallback) return `'${rules.fallback}'은(는) 기본 항목이라 쓸 수 없습니다`
+  if (rules.categories.some((c) => c.name === name)) return '이미 있는 카테고리입니다'
+  return null
 }

@@ -1,9 +1,38 @@
 import defaultRules from '../data/category-rules.json'
+import extraRules from '../data/category-rules-extra.json'
 import defaultMerges from '../data/product-merges.json'
 import { EMPTY_OVERRIDES } from './pipeline'
 import type { OrderRow, Overrides, ReceiptRow, RulesConfig, Settings } from './types'
 
+/** handoff 기본 규칙(oracle과 테스트의 기준). 건드리지 않는다 */
 export const DEFAULT_RULES = defaultRules as RulesConfig
+export const EXTRAS_VERSION: number = extraRules.version
+const EXTRA_CATEGORIES = extraRules.categories as { name: string; keywords: string[] }[]
+
+/**
+ * 확장 키워드를 같은 이름의 카테고리 뒤에 이어 붙인다(이미 있는 것은 건너뜀).
+ * 사용자가 지운 카테고리는 되살리지 않는다. 결과에는 extrasVersion 이 찍혀, 이후 사용자가 지운 키워드가 되살아나지 않는다.
+ */
+export function withExtras(rules: RulesConfig): RulesConfig {
+  return {
+    ...rules,
+    extrasVersion: EXTRAS_VERSION,
+    categories: rules.categories.map((c) => {
+      const extra = EXTRA_CATEGORIES.find((e) => e.name === c.name)
+      if (!extra) return c
+      const have = new Set(c.keywords)
+      return { ...c, keywords: [...c.keywords, ...extra.keywords.filter((k) => !have.has(k))] }
+    }),
+  }
+}
+
+/** 앱의 기본 규칙: handoff 규칙 + 확장 키워드 */
+export const DEFAULT_RULES_EXTENDED = withExtras(DEFAULT_RULES)
+
+export function effectiveRules(stored: RulesConfig | null): RulesConfig {
+  if (!stored) return DEFAULT_RULES_EXTENDED
+  return (stored.extrasVersion ?? 0) < EXTRAS_VERSION ? withExtras(stored) : stored
+}
 export const DEFAULT_MERGES = defaultMerges as Record<string, string>
 
 export interface ImportMeta {
@@ -38,7 +67,7 @@ export const emptyStored = (): StoredData => ({
 
 export function effectiveSettings(s: StoredData): Settings {
   return {
-    rules: s.rules ?? DEFAULT_RULES,
+    rules: effectiveRules(s.rules),
     merges: { ...DEFAULT_MERGES, ...s.merges },
     overrides: s.overrides ?? EMPTY_OVERRIDES,
     dedupe: s.dedupe,

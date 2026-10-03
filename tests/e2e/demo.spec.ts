@@ -72,6 +72,97 @@ test.describe('예시 화면 (mock 데이터)', () => {
     expect(net.urls.filter((u) => /\/rest\/v1\//.test(u))).toEqual([])
   })
 
+  test('결제 내역을 거래일시, 1개당 가격, 금액으로 정렬할 수 있다', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: '예시 화면 보기' }).click()
+    await page.getByTestId('kpi-total').waitFor()
+    const nums = async (id: string) => (await page.getByTestId(id).allInnerTexts()).map((t) => Number(t.replace(/[^\d]/g, '')))
+    const dates = async () => (await page.getByTestId('rows').locator('tbody tr td:first-child').allInnerTexts()).map((t) => t.trim())
+    const sorted = (a: number[], dir: 1 | -1) => a.every((v, i) => i === 0 || (dir === 1 ? a[i - 1] <= v : a[i - 1] >= v))
+
+    // 기본: 거래일시 최근 순
+    const d0 = await dates()
+    expect(d0).toEqual([...d0].sort().reverse())
+    await expect(page.getByTestId('sort-dt').locator('xpath=..')).toHaveAttribute('aria-sort', 'descending')
+
+    // 금액: 처음 누르면 높은 순, 다시 누르면 낮은 순
+    await page.getByTestId('sort-amount').click()
+    await expect(page.getByTestId('sort-amount').locator('xpath=..')).toHaveAttribute('aria-sort', 'descending')
+    const a1 = await nums('row-amount')
+    expect(sorted(a1, -1)).toBe(true)
+    expect(a1[0]).toBeGreaterThan(0)
+    await page.getByTestId('sort-amount').click()
+    await expect(page.getByTestId('sort-amount').locator('xpath=..')).toHaveAttribute('aria-sort', 'ascending')
+    expect(sorted(await nums('row-amount'), 1)).toBe(true)
+
+    // 1개당 가격: 맨 위가 "가장 큰 구매(1개당 가격)"와 같고, 상품당 평균은 총 지출 / 총 수량이다
+    await page.getByTestId('sort-price').click()
+    const p1 = await nums('row-price')
+    expect(sorted(p1, -1)).toBe(true)
+    expect(p1[0]).toBe(Number((await page.getByTestId('kpi-max').innerText()).replace(/[^\d]/g, '')))
+    expect(Number((await page.getByTestId('kpi-avg').innerText()).replace(/[^\d]/g, ''))).toBeLessThanOrEqual(p1[0])
+    await page.getByTestId('sort-price').click()
+    expect(sorted(await nums('row-price'), 1)).toBe(true)
+
+    // 거래일시: 다른 정렬에서 돌아오면 최근 순, 다시 누르면 오래된 순
+    await page.getByTestId('sort-dt').click()
+    const d1 = await dates()
+    expect(d1).toEqual([...d1].sort().reverse())
+    await page.getByTestId('sort-dt').click()
+    const d2 = await dates()
+    expect(d2).toEqual([...d2].sort())
+    await expect(page.getByTestId('count-label')).toContainText('거래일시 오래된 순')
+
+    // 정렬은 카테고리 필터와 함께 동작한다
+    await page.getByTestId('cat-건강·의료').click()
+    await page.getByTestId('sort-amount').click()
+    expect(sorted(await nums('row-amount'), -1)).toBe(true)
+    await expectNoSeriousA11y(page, '결제 내역 정렬')
+  })
+
+  test('카테고리 정리는 받은 상품만 다루고, 카테고리를 직접 추가할 수 있다', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: '예시 화면 보기' }).click()
+    await page.getByTestId('kpi-total').waitFor()
+
+    // 대시보드의 "받은 상품만" 건수와 카테고리 정리의 전체 건수가 같다(반품, 취소 제외)
+    const count = ((await page.getByTestId('kpi-count').innerText()).match(/[\d,]+/) ?? ['0'])[0].replace(/,/g, '')
+    await page.getByLabel('주문 상태').selectOption('all')
+    const countAll = ((await page.getByTestId('kpi-count').innerText()).match(/[\d,]+/) ?? ['0'])[0].replace(/,/g, '')
+    expect(Number(countAll)).toBeGreaterThan(Number(count))
+    await page.getByRole('link', { name: /카테고리 정리/ }).click()
+    await expect(page.getByTestId('st-auto')).toContainText(`/ ${count}`)
+
+    // 새 카테고리 추가
+    await page.getByTestId('new-category-input').fill('반려동물')
+    await page.getByTestId('new-category-add').click()
+    await expect(page.getByTestId('category-chip').filter({ hasText: '반려동물' })).toBeVisible()
+    // 같은 이름은 거부
+    await page.getByTestId('new-category-input').fill('반려동물')
+    await page.getByTestId('new-category-add').click()
+    await expect(page.getByRole('alert').filter({ hasText: '이미 있는' })).toBeVisible()
+    // 추가한 카테고리는 규칙 추가의 선택지에도 나온다
+    await expect(page.getByTestId('rule-category').locator('option', { hasText: '반려동물' })).toHaveCount(1)
+    // 삭제
+    await page.getByRole('button', { name: '반려동물 카테고리 삭제' }).click()
+    await page.getByRole('button', { name: '삭제', exact: true }).click()
+    await expect(page.getByTestId('category-chip').filter({ hasText: '반려동물' })).toHaveCount(0)
+
+    // 직접 확인할 상품: 상품마다 카테고리를 골라 지정한다
+    const review = page.getByTestId('review-section')
+    await expect(review).toBeVisible()
+    if ((await page.getByTestId('conflict').count()) > 0) {
+      const before = await page.getByTestId('st-conflicts').innerText()
+      await page.getByTestId('conflict').first().getByRole('button', { name: /상품 확인하기|접기/ }).click()
+      const item = page.getByTestId('review-item').first()
+      await expect(item).toBeVisible()
+      await item.getByRole('button', { name: '생활용품', exact: true }).click()
+      await expect(page.getByTestId('st-manual')).not.toHaveText(/^0/)
+      expect(await page.getByTestId('st-conflicts').innerText()).not.toBe(before)
+    }
+    await expectNoSeriousA11y(page, '카테고리 정리(확인 섹션)')
+  })
+
   test('키보드만으로 탭과 버튼을 조작할 수 있다', async ({ page }) => {
     await page.goto('/')
     await page.getByRole('button', { name: '예시 화면 보기' }).focus()
