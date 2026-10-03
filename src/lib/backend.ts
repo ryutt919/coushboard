@@ -14,6 +14,8 @@ export interface Backend {
   /** 설정 전체를 교체(가져오기, 초기화) */
   replaceSettings(bundle: SettingsBundle): Promise<void>
   importOrders(meta: { file_name: string; file_sha256: string }, rows: OrderRow[]): Promise<void>
+  /** 이미 저장된 주문의 배송비를 주문 단위로 정한다(그 주문의 첫 행에 담고 나머지 행은 비운다) */
+  setOrderShipping(updates: { order_no: string; fee: number }[]): Promise<void>
   importReceipts(meta: { file_name: string; file_sha256: string }, rows: ReceiptRow[]): Promise<void>
   deleteAll(): Promise<void>
   exportAll(): Promise<Record<string, unknown>>
@@ -70,6 +72,10 @@ export class MemoryBackend implements Backend {
   async importReceipts(meta: { file_name: string; file_sha256: string }, rows: ReceiptRow[]) {
     this.addImport('receipts', meta, rows.length)
     this.data.receipts = applyReceipts(this.data.receipts, rows)
+  }
+  async setOrderShipping(updates: { order_no: string; fee: number }[]) {
+    const fees = new Map(updates.map((u) => [u.order_no, u.fee]))
+    this.data.orders = this.data.orders.map((o) => (fees.has(o.order_no) ? { ...o, shipping_fee: o.seq === 0 ? fees.get(o.order_no)! : null } : o))
   }
   async deleteAll() {
     this.data = emptyStored()

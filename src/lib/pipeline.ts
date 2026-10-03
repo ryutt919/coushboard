@@ -118,6 +118,7 @@ function enrich(rows: RawRow[], settings: Settings, restoredSet: Set<RawRow>): E
       price: r.sale_price,
       qty: r.qty,
       amount: r.sale_price * r.qty,
+      shipping_fee: r.shipping_fee ?? 0,
       category: manualCat ?? auto,
       auto_category: auto,
       manual: manualCat !== undefined,

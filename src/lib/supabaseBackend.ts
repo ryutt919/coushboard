@@ -36,6 +36,7 @@ interface OrderDb {
   list_price: number | null
   sale_price: number
   seller: string | null
+  shipping_fee: number | null
 }
 
 interface ReceiptDb {
@@ -60,7 +61,7 @@ export class SupabaseBackend implements Backend {
       fetchAllPages<OrderDb>((f, t) =>
         db
           .from('order_items')
-          .select('order_no,seq_in_order,ordered_at,bundle_no,product_no,status,raw_name,qty,list_price,sale_price,seller')
+          .select('order_no,seq_in_order,ordered_at,bundle_no,product_no,status,raw_name,qty,list_price,sale_price,seller,shipping_fee')
           .order('id')
           .range(f, t),
       ),
@@ -93,6 +94,7 @@ export class SupabaseBackend implements Backend {
       list_price: o.list_price,
       sale_price: o.sale_price,
       seller: o.seller,
+      shipping_fee: o.shipping_fee,
     }))
     s.receipts = receipts.map((r) => ({ ...r, paid_at: ts(r.paid_at) }))
     s.rules = (rules.data?.rules as RulesConfig | undefined) ?? null
@@ -225,6 +227,7 @@ export class SupabaseBackend implements Backend {
       list_price: r.list_price,
       sale_price: r.sale_price,
       seller: r.seller,
+      shipping_fee: r.shipping_fee ?? null,
     }))
     const { error } = await this.db.rpc('replace_orders', { p_import_id: id, p_rows: payload })
     if (error) {
@@ -247,6 +250,16 @@ export class SupabaseBackend implements Backend {
     if (error) {
       await this.dropImport(id)
       throw new Error(`영수증 저장에 실패했습니다: ${error.message}`)
+    }
+  }
+
+  async setOrderShipping(updates: { order_no: string; fee: number }[]) {
+    for (const u of updates) {
+      // 배송비는 주문 단위 값이라 첫 행에 담고 같은 주문의 나머지 행은 비운다
+      const clear = await this.db.from('order_items').update({ shipping_fee: null }).eq('order_no', u.order_no)
+      this.check(clear.error, '배송비')
+      const set = await this.db.from('order_items').update({ shipping_fee: u.fee }).eq('order_no', u.order_no).eq('seq_in_order', 0)
+      this.check(set.error, '배송비')
     }
   }
 

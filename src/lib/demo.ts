@@ -163,7 +163,14 @@ export function generateDemo(): { orders: OrderRow[]; receipts: ReceiptRow[] } {
 export function demoStored(): StoredData {
   const { orders, receipts } = generateDemo()
   const s = emptyStored()
-  s.orders = orders
+  // 일부 주문(7번째마다)의 첫 행에 배송비를 붙여, 지출과 별도로 보이는 배송비 표시를 예시에서도 볼 수 있게 한다
+  const seen = new Map<string, number>()
+  s.orders = orders.map((o) => {
+    const n = seen.get(o.order_no)
+    if (n !== undefined) return o
+    seen.set(o.order_no, seen.size)
+    return seen.size % 7 === 0 ? { ...o, shipping_fee: 3000 } : o
+  })
   s.receipts = receipts
   return s
 }

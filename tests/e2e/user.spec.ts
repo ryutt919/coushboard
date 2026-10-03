@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { dirname } from 'node:path'
 import { allowedHost, expectNoSeriousA11y, FIX, trackHosts } from './helpers'
 
 // 실제 Supabase(로컬 스택 또는 테스트 프로젝트) + 테스트 사용자. 픽스처만 사용한다.
@@ -165,6 +166,77 @@ test.describe('H5: 화면 E2E (Supabase)', () => {
     await page.goto('/#/')
     await allPeriod(page)
     await expect(total(page)).toContainText('361,540')
+  })
+
+  test('13: 외부 주문 도구 형식: 형식 안내, 겹치는 주문 건너뛰기, 모르는 상태 짝짓기, 배송비 별도 표시', async ({ page }, info) => {
+    const HEAD = '날짜,주문번호,상품명,수량,금액,배송비,상태'
+    const tmp = (name: string, body: string) => {
+      const f = info.outputPath(name)
+      mkdirSync(dirname(f), { recursive: true })
+      writeFileSync(f, '﻿' + HEAD + '\r\n' + body + '\r\n', 'utf-8')
+      return f
+    }
+    const upload = (file: string) => page.getByTestId('file-input').setInputFiles(file)
+
+    // 쿠팡 내보내기 픽스처를 먼저 올린다(21행)
+    await wipe(page)
+    await upload(FIX('orders_fixture.csv'))
+    await expect(page.getByTestId('res-raw')).toHaveText('21행', { timeout: 20000 })
+
+    // 외부 도구 형식은 바로 올리지 않고 변환 안내와 겹침 처리를 보여 준다
+    await upload(FIX('orders_tool_fixture.csv'))
+    const panel = page.getByTestId('pending-panel')
+    await expect(panel.getByTestId('format-badge')).toHaveText('외부 주문 도구 형식')
+    await expect(panel.getByTestId('format-notes')).toContainText('00:00:00')
+    await expect(panel.getByTestId('format-notes')).toContainText('5,500원')
+    await expect(panel.getByTestId('plan-new')).toHaveText('4')
+    await expect(panel.getByTestId('plan-skip')).toHaveText('2') // 이미 쿠팡 내보내기로 올린 주문 2개
+    await expect(panel.getByTestId('plan-shipping')).toHaveText('1') // 그중 배송비가 있는 주문 1개는 배송비만 합쳐 넣는다
+    await expectNoSeriousA11y(page, '외부 도구 형식 확인')
+    await panel.getByTestId('upload-confirm').click()
+
+    // 새 주문 5행이 추가되고, 건너뛴 주문과 배송비가 안내된다
+    await expect(page.getByTestId('res-raw')).toHaveText('26행', { timeout: 20000 })
+    await expect(page.getByTestId('result-skipped')).toContainText('2개')
+    await expect(page.getByTestId('result-skipped')).toContainText('배송비만 합쳐 넣었습니다')
+    await expect(page.getByTestId('result-shipping')).toContainText('5,500원') // 새 주문 3,000원 + 기존 주문에 합친 2,500원
+
+    // 총 지출은 금액만(341,050 + 39,800), 배송비는 따로
+    await page.goto('/#/')
+    await allPeriod(page)
+    await expect(total(page)).toContainText('380,850')
+    await expect(page.getByTestId('kpi-shipping')).toContainText('5,500원')
+
+    // 같은 파일은 다시 올릴 수 없다
+    await page.goto('/#/upload')
+    await upload(FIX('orders_tool_fixture.csv'))
+    await expect(page.getByTestId('duplicate-notice')).toBeVisible()
+
+    // 이미 있는 주문만 들어 있는 파일: 올릴 새 주문이 없다고 안내하고 데이터는 그대로
+    await upload(tmp('only-existing.csv', '2025-01-15,1000000000002,다른 이름,1,9999,0,배송완료'))
+    await page.getByTestId('upload-confirm').click()
+    await expect(page.getByTestId('nothing-new')).toBeVisible()
+    await page.goto('/#/')
+    await allPeriod(page)
+    await expect(total(page)).toContainText('380,850')
+
+    // 모르는 상태값: 짝짓기 전에는 올릴 수 없고, 짝지으면 올라간다
+    await page.goto('/#/upload')
+    await upload(tmp('unknown-status.csv', '2026-06-05,2000000000007,모의과자 세트,1,5500,0,발송준비'))
+    await expect(page.getByTestId('unknown-status')).toContainText('발송준비')
+    await expect(page.getByTestId('upload-confirm')).toHaveCount(0)
+    await page.getByTestId('status-map-발송준비').selectOption('배송중')
+    await page.getByTestId('status-apply').click()
+    await page.getByTestId('upload-confirm').click()
+    await expect(page.getByTestId('res-raw')).toHaveText('27행', { timeout: 20000 })
+
+    // 덮어쓰기를 고르면 이미 있는 주문도 새 내용으로 바뀐다
+    await upload(tmp('overwrite.csv', '2025-01-15,1000000000002,덮어쓴 이름,1,1234,0,배송완료'))
+    await page.getByTestId('mode-overwrite').check()
+    await expect(page.getByTestId('plan-replace')).toHaveText('1')
+    await page.getByTestId('upload-confirm').click()
+    await expect(page.getByTestId('res-raw')).toBeVisible()
+    await wipe(page)
   })
 
   test('12: 로그아웃 상태 새 브라우저에서 접근하면 로그인 화면이고 데이터 요청은 0건이다', async ({ browser, baseURL }) => {

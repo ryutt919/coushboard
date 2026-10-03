@@ -73,6 +73,21 @@ describe.skipIf(!dbEnabled)('H9: 저장 왕복', () => {
     expect(s.overrides.row).toEqual({})
   })
 
+  it('배송비가 저장되고 읽히며, 이미 저장된 주문에 합쳐 넣을 수 있다', async () => {
+    await backend.deleteAll()
+    const mk = (seq: number, fee: number | null): OrderRow => ({
+      order_no: '3000000000001', seq, ordered_at: '2026-06-03 00:00:00', bundle_no: null, product_no: String(700 + seq),
+      status: '배송완료', raw_name: `배송비테스트 ${seq}`, qty: 1, list_price: null, sale_price: 1000, seller: null, shipping_fee: fee,
+    })
+    await backend.importOrders({ file_name: 'ship.csv', file_sha256: 'a1'.repeat(32) }, [mk(0, 3000), mk(1, null)])
+    let s = await backend.load()
+    expect(s.orders.map((o) => o.shipping_fee)).toEqual([3000, null])
+    // 주문 단위로 합쳐 넣으면 첫 행에 담기고 나머지는 비워진다
+    await backend.setOrderShipping([{ order_no: '3000000000001', fee: 9000 }])
+    s = await backend.load()
+    expect(s.orders.map((o) => o.shipping_fee)).toEqual([9000, null])
+  })
+
   it('페이지 나누기: 2,500행을 넣고 불러오면 2,500행이다(1000행 제한 회귀 방지)', async () => {
     await backend.deleteAll()
     const rows: OrderRow[] = []

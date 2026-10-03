@@ -18,6 +18,8 @@ export interface OrderRow {
   list_price: number | null
   sale_price: number
   seller: string | null
+  /** 배송비(원). 외부 주문 도구 형식에만 있다. 총 지출에는 더하지 않고 별도로 보여 준다 */
+  shipping_fee?: number | null
 }
 
 export interface ReceiptRow {
@@ -76,6 +78,7 @@ export interface EnrichedRow {
   price: number
   qty: number
   amount: number
+  shipping_fee: number
   category: string
   auto_category: string
   manual: boolean

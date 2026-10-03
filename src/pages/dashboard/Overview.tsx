@@ -56,6 +56,8 @@ export function Overview({ period, sel, summary, cov }: { period: Period; sel: E
   const total = summary.total
   // 가장 큰 구매와 상품당 평균은 상품 1개당 가격(판매가) 기준이다. 가격 x 수량(금액)이 아니다.
   const { top, avgUnit } = unitStats(sel)
+  // 배송비는 총 지출에 더하지 않고 별도로 보여 준다(외부 주문 도구 형식에만 있음)
+  const shipping = sel.reduce((a, r) => a + r.shipping_fee, 0)
   const shownEnd = to > app.range.end ? app.range.end : to
 
   const cats = Object.entries(summary.by_category)
@@ -133,6 +135,11 @@ export function Overview({ period, sel, summary, cov }: { period: Period; sel: E
           <div className="n">
             {dot(from)} – {dot(shownEnd)}
           </div>
+          {shipping > 0 && (
+            <div className="n" data-testid="kpi-shipping" style={{ marginTop: 2 }}>
+              배송비 별도 {fmt(shipping)}원
+            </div>
+          )}
         </div>
         <div className="kpi">
           <div className="l">주문 상품</div>

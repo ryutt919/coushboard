@@ -47,6 +47,7 @@ interface Ctx {
   replaceSettings: (b: SettingsBundle) => Promise<void>
   importOrders: (meta: { file_name: string; file_sha256: string }, rows: OrderRow[]) => Promise<void>
   importReceipts: (meta: { file_name: string; file_sha256: string }, rows: ReceiptRow[]) => Promise<void>
+  setOrderShipping: (updates: { order_no: string; fee: number }[]) => Promise<void>
   deleteAll: () => Promise<void>
   exportAll: () => Promise<Record<string, unknown>>
 }
@@ -201,6 +202,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     },
     importReceipts: async (meta, rows) => {
       await backend.current!.importReceipts(meta, rows)
+      await load()
+    },
+    setOrderShipping: async (updates) => {
+      await backend.current!.setOrderShipping(updates)
       await load()
     },
     deleteAll: async () => {

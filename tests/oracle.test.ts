@@ -1,16 +1,7 @@
-import { spawnSync } from 'node:child_process'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { runPipeline } from '../src/lib/pipeline'
-import { fx, MERGES, PERIODS, ROOT, RULES, STATUSES3 } from './helpers'
-
-export function runOracle(args: string[]): unknown {
-  for (const py of ['python3', 'python']) {
-    const r = spawnSync(py, [resolve(ROOT, 'tools/oracle/oracle.py'), ...args], { encoding: 'utf-8', maxBuffer: 256 * 1024 * 1024, env: { ...process.env, PYTHONIOENCODING: 'utf-8' } })
-    if (r.status === 0 && r.stdout) return JSON.parse(r.stdout)
-  }
-  throw new Error('oracle.py 실행 실패 (python3/python 모두)')
-}
+import { fx, MERGES, PERIODS, ROOT, RULES, runOracle, STATUSES3 } from './helpers'
 
 describe('차등: oracle.py 실행 결과 vs runPipeline (픽스처)', () => {
   const base = [
