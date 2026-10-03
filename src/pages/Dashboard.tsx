@@ -167,7 +167,7 @@ export function Dashboard() {
             {tab === '개요' ? (
               <Overview period={period} sel={sel} summary={summary} />
             ) : (
-              <Detail period={period} sel={sel} summary={summary} onWidenPeriod={() => setPreset('전체')} />
+              <Detail period={period} sel={sel} onWidenPeriod={() => setPreset('전체')} />
             )}
           </div>
         </section>

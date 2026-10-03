@@ -5,14 +5,14 @@ import { fmt } from '../../lib/format'
 import { selectRows } from '../../lib/pipeline'
 import { round2 } from '../../lib/normalize'
 import { groupSummaries, matchesNeedle } from '../../lib/stats'
-import type { EnrichedRow, ProductSummary, Summary } from '../../lib/types'
+import type { EnrichedRow, ProductSummary } from '../../lib/types'
 import { useApp } from '../../state/AppState'
 import type { Period } from '../Dashboard'
 import { labeler } from './chart'
 
 type Sort = 'count' | 'amount'
 
-export function Detail({ period, sel, summary, onWidenPeriod }: { period: Period; sel: EnrichedRow[]; summary: Summary; onWidenPeriod?: () => void }) {
+export function Detail({ period, sel, onWidenPeriod }: { period: Period; sel: EnrichedRow[]; onWidenPeriod?: () => void }) {
   const app = useApp()
   const { from, to } = period
   const [sort, setSort] = useState<Sort>('count')
@@ -29,13 +29,13 @@ export function Detail({ period, sel, summary, onWidenPeriod }: { period: Period
 
   const needle = q.trim().toLowerCase()
 
-  // 검색어가 있으면 이 기간의 모든 일치 구매(한 번만 산 품목 포함), 없으면 2번 이상 산 품목
+  // 검색어가 있으면 이 기간의 일치 구매만, 없으면 이 기간의 모든 구매(한 번만 산 품목 포함)
   const matchRows = useMemo(() => (needle ? sel.filter((r) => matchesNeedle(r, needle)) : []), [sel, needle])
 
   const products = useMemo(() => {
-    const list = needle ? groupSummaries(matchRows) : summary.products
-    return [...list].sort((a, b) => (sort === 'count' ? b.n - a.n || b.amount - a.amount : b.amount - a.amount || b.n - a.n))
-  }, [summary.products, matchRows, sort, needle])
+    const list = groupSummaries(needle ? matchRows : sel)
+    return list.sort((a, b) => (sort === 'count' ? b.n - a.n || b.amount - a.amount : b.amount - a.amount || b.n - a.n))
+  }, [sel, matchRows, sort, needle])
 
   // 이 기간 밖(다른 기간)에도 일치하는 품목이 있으면 알려 준다
   const outsideCount = useMemo(() => {
@@ -64,10 +64,10 @@ export function Detail({ period, sel, summary, onWidenPeriod }: { period: Period
     }
   }, [matchRows, needle, q])
 
-  if (summary.products.length === 0) {
+  if (sel.length === 0) {
     return (
       <div className="card" style={{ padding: '40px 24px', textAlign: 'center', color: 'var(--muted)', fontSize: 15 }}>
-        이 기간에 2번 이상 산 품목이 없습니다. 기간을 넓혀 보세요.
+        이 기간에 산 품목이 없습니다. 기간을 넓혀 보세요.
       </div>
     )
   }
@@ -124,9 +124,9 @@ export function Detail({ period, sel, summary, onWidenPeriod }: { period: Period
       <div className="split">
         <div className="card" style={{ overflow: 'hidden' }}>
           <div style={{ padding: '16px 16px 12px' }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700 }}>자주 산 품목</h2>
+            <h2 style={{ fontSize: 16, fontWeight: 700 }}>구매 품목</h2>
             <div className="sub" style={{ marginTop: 2 }}>
-              {needle ? `선택한 기간의 검색 결과 · ${products.length}개 품목 (한 번만 산 품목 포함)` : `선택한 기간에 2번 이상 산 품목 · ${summary.products.length}개`}
+              {needle ? `선택한 기간의 검색 결과 · ${products.length}개 품목 (한 번만 산 품목 포함)` : `선택한 기간에 산 모든 품목 · ${products.length}개 (한 번만 산 품목 포함)`}
             </div>
             <div className="seg" style={{ marginTop: 12 }} role="group" aria-label="정렬">
               {([['count', '구매 횟수순'], ['amount', '지출 금액순']] as const).map(([k, label]) => (
