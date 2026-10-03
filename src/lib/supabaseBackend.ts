@@ -7,13 +7,21 @@ import type { OrderRow, ReceiptRow, RulesConfig } from './types'
 /** PostgREST 한 번 응답 행 수 제한(기본 1000)을 넘지 않도록 range()로 끝까지 읽는다. */
 export const PAGE_SIZE = 1000
 
+/** DB 오류 코드를 함께 들고 있는 오류(예: 42703 = 없는 컬럼) */
+export class DbReadError extends Error {
+  constructor(message: string, public code?: string) {
+    super(`데이터를 읽지 못했습니다: ${message}`)
+    this.name = 'DbReadError'
+  }
+}
+
 export async function fetchAllPages<T>(
-  build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+  build: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string; code?: string } | null }>,
 ): Promise<T[]> {
   const out: T[] = []
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await build(from, from + PAGE_SIZE - 1)
-    if (error) throw new Error(`데이터를 읽지 못했습니다: ${error.message}`)
+    if (error) throw new DbReadError(error.message, error.code)
     const page = data ?? []
     out.push(...page)
     if (page.length < PAGE_SIZE) break
@@ -48,9 +56,32 @@ interface ReceiptDb {
   total: number
 }
 
+const ORDER_COLS = 'order_no,seq_in_order,ordered_at,bundle_no,product_no,status,raw_name,qty,list_price,sale_price,seller'
+
 export class SupabaseBackend implements Backend {
   mode = 'user' as const
+  /**
+   * order_items.shipping_fee 컬럼이 DB에 있는지. 배송비 마이그레이션을 적용하기 전에도 앱이 동작하도록,
+   * 읽을 때 없는 컬럼 오류(42703)가 나면 배송비 없이 다시 읽고 false로 기록한다. 그 밖의 오류는 그대로 올린다.
+   */
+  supportsShipping = true
   constructor(private db: SupabaseClient) {}
+
+  private async readOrders(): Promise<OrderDb[]> {
+    const db = this.db
+    // select 문자열이 동적이라 supabase-js 타입이 행 모양을 알 수 없어 응답 타입을 직접 지정한다
+    type Resp = { data: OrderDb[] | null; error: { message: string; code?: string } | null }
+    const read = (cols: string) => fetchAllPages<OrderDb>((f, t) => db.from('order_items').select(cols).order('id').range(f, t) as unknown as PromiseLike<Resp>)
+    try {
+      const rows = await read(`${ORDER_COLS},shipping_fee`)
+      this.supportsShipping = true
+      return rows
+    } catch (e) {
+      if (!(e instanceof DbReadError) || e.code !== '42703' || !e.message.includes('shipping_fee')) throw e
+      this.supportsShipping = false
+      return (await read(ORDER_COLS)).map((o) => ({ ...o, shipping_fee: null }))
+    }
+  }
 
   async load(): Promise<StoredData> {
     const db = this.db
@@ -58,13 +89,7 @@ export class SupabaseBackend implements Backend {
       fetchAllPages<ImportMeta>((f, t) =>
         db.from('imports').select('id,kind,file_name,file_sha256,row_count,created_at').order('created_at').range(f, t),
       ),
-      fetchAllPages<OrderDb>((f, t) =>
-        db
-          .from('order_items')
-          .select('order_no,seq_in_order,ordered_at,bundle_no,product_no,status,raw_name,qty,list_price,sale_price,seller,shipping_fee')
-          .order('id')
-          .range(f, t),
-      ),
+      this.readOrders(),
       fetchAllPages<ReceiptDb>((f, t) =>
         db.from('receipts').select('receipt_key,order_no,paid_at,item_name,item_count,total').order('id').range(f, t),
       ),
@@ -254,6 +279,7 @@ export class SupabaseBackend implements Backend {
   }
 
   async setOrderShipping(updates: { order_no: string; fee: number }[]) {
+    if (!this.supportsShipping) throw new Error('배송비를 저장하려면 데이터베이스 업데이트(shipping_fee 마이그레이션)가 먼저 필요합니다.')
     for (const u of updates) {
       // 배송비는 주문 단위 값이라 첫 행에 담고 같은 주문의 나머지 행은 비운다
       const clear = await this.db.from('order_items').update({ shipping_fee: null }).eq('order_no', u.order_no)

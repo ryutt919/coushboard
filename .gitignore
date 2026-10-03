@@ -6,7 +6,7 @@ dist/
 *.csv
 *.xlsx
 !tests/fixtures/*.csv
-data/
+/data/
 verify-output/
 test-results/
 playwright-report/

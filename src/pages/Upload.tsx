@@ -133,7 +133,9 @@ export function Upload() {
       let entry: UploadedEntry
       if (p.kind === 'orders') {
         const plan = planImport(p.orders ?? [], app.stored.orders, p.format, p.mode)
-        if (plan.rows.length === 0 && plan.shippingUpdates.length === 0) {
+        // DB에 배송비 컬럼이 없으면 배송비는 저장하지 못하므로 합치기를 건너뛴다(화면에 안내함)
+        const shippingUpdates = app.supportsShipping ? plan.shippingUpdates : []
+        if (plan.rows.length === 0 && shippingUpdates.length === 0) {
           // 올릴 새 주문도 합칠 배송비도 없으면 아무것도 저장하지 않는다(업로드 이력도 만들지 않는다)
           setNothingNew({ name: p.fileName, skipped: plan.skippedOrders })
           setPending(null)
@@ -141,8 +143,8 @@ export function Upload() {
           return
         }
         if (plan.rows.length > 0) await app.importOrders(meta, plan.rows)
-        if (plan.shippingUpdates.length > 0) await app.setOrderShipping(plan.shippingUpdates)
-        entry = { name: p.fileName, size: p.size, kind: p.kind, rows: plan.rows.length, skippedOrders: plan.skippedOrders, newOrders: plan.newOrders, replacedOrders: plan.replacedOrders, shippingMerged: plan.shippingUpdates.length, format: p.format }
+        if (shippingUpdates.length > 0) await app.setOrderShipping(shippingUpdates)
+        entry = { name: p.fileName, size: p.size, kind: p.kind, rows: plan.rows.length, skippedOrders: plan.skippedOrders, newOrders: plan.newOrders, replacedOrders: plan.replacedOrders, shippingMerged: shippingUpdates.length, format: p.format }
       } else {
         await app.importReceipts(meta, p.receipts ?? [])
         entry = { name: p.fileName, size: p.size, kind: p.kind, rows: p.receipts?.length ?? 0, skippedOrders: 0, newOrders: 0, replacedOrders: 0, shippingMerged: 0, format: p.format }
@@ -253,6 +255,7 @@ export function Upload() {
           <PendingPanel
             pending={pending}
             existing={app.stored.orders}
+            supportsShipping={app.supportsShipping}
             onRemap={remap}
             onMode={(mode) => setPending({ ...pending, mode })}
             onSave={() => void save(pending)}
@@ -292,6 +295,7 @@ export function Upload() {
 function PendingPanel({
   pending,
   existing,
+  supportsShipping,
   onRemap,
   onMode,
   onSave,
@@ -299,6 +303,7 @@ function PendingPanel({
 }: {
   pending: Pending
   existing: OrderRow[]
+  supportsShipping: boolean
   onRemap: (m: ColumnMapping, statusMap?: Record<string, string>) => void
   onMode: (m: OverlapMode) => void
   onSave: () => void
@@ -446,7 +451,7 @@ function PendingPanel({
                 , 이미 더 자세한 데이터가 있어 건너뛸 주문 <strong data-testid="plan-skip">{plan.skippedOrders}</strong>개
               </>
             ) : null}
-            {plan.shippingUpdates.length > 0 && (
+            {supportsShipping && plan.shippingUpdates.length > 0 && (
               <>
                 , 배송비만 합쳐 넣을 기존 주문 <strong data-testid="plan-shipping">{plan.shippingUpdates.length}</strong>개
               </>
@@ -472,6 +477,13 @@ function PendingPanel({
         </fieldset>
       )}
 
+      {tool && !supportsShipping && (pending.orders ?? []).some((r) => (r.shipping_fee ?? 0) > 0) && (
+        <div className="notice" role="status" data-testid="shipping-unsupported">
+          <WarnIcon />
+          <div>배송비는 아직 저장할 수 없습니다. 데이터베이스에 배송비 컬럼을 추가하는 업데이트(shipping_fee 마이그레이션)가 적용된 뒤에 다시 올리면 반영됩니다. 그 밖의 내용은 지금 올릴 수 있습니다.</div>
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         {!blocked && (
           <button type="button" className="btn sm primary" data-testid="upload-confirm" disabled={isOrders && (!plan || (plan.rows.length === 0 && !tool))} onClick={onSave}>
@@ -481,7 +493,7 @@ function PendingPanel({
         <button type="button" className="btn sm" onClick={onCancel}>
           취소
         </button>
-        {plan && plan.rows.length === 0 && plan.shippingUpdates.length === 0 && tool && <span className="sub">올릴 새 주문이 없습니다. 올리기를 누르면 이 안내만 보여 줍니다.</span>}
+        {plan && plan.rows.length === 0 && (plan.shippingUpdates.length === 0 || !supportsShipping) && tool && <span className="sub">올릴 새 주문이 없습니다. 올리기를 누르면 이 안내만 보여 줍니다.</span>}
       </div>
     </section>
   )

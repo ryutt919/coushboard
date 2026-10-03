@@ -5,6 +5,8 @@ import type { OrderRow, ReceiptRow, RulesConfig } from './types'
 /** 저장소 추상화: Supabase(로그인 사용자)와 메모리(예시 화면) 두 구현 */
 export interface Backend {
   mode: 'user' | 'demo'
+  /** 배송비를 저장할 수 있는지(DB에 shipping_fee 컬럼이 있는지). 없으면 배송비는 저장하지 않고 안내한다 */
+  supportsShipping: boolean
   load(): Promise<StoredData>
   setRowOverride(key: string, category: string | null): Promise<void>
   setGroupOverride(base: string, category: string | null): Promise<void>
@@ -31,6 +33,7 @@ export class DuplicateFileError extends Error {
 /** 예시 화면용: 네트워크 없이 메모리에만 저장 */
 export class MemoryBackend implements Backend {
   mode = 'demo' as const
+  supportsShipping = true
   private data: StoredData
 
   constructor(initial?: StoredData) {

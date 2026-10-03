@@ -105,6 +105,8 @@ if (real && existsSync(real)) {
   const leaked = new Map()
   for (const f of files) {
     if (isFixture(f) || !textExt.test(f)) continue
+    // handoff 가 초기 품목 병합 목록으로 지정한 파일(공개된 마트 상품명 몇 개). 사용자 데이터에서 새로 가져온 것이 아니므로 예외
+    if (f.split(sep).join('/') === 'src/data/product-merges.json') continue
     const t = readFileSync(join(root, f), 'utf-8')
     let n = 0
     for (const name of names) if (t.includes(name)) n += 1

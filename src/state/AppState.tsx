@@ -26,6 +26,8 @@ interface Ctx {
   supabaseConfigured: boolean
   loading: boolean
   loadError: string | null
+  /** DB에 배송비 컬럼이 있어 배송비를 저장할 수 있는지 */
+  supportsShipping: boolean
   stored: StoredData
   settings: Settings
   prep: Prepared
@@ -66,6 +68,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [stored, setStored] = useState<StoredData>(emptyStored)
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [supportsShipping, setSupportsShipping] = useState(true)
   const [toast, setToast] = useState<Toast | null>(null)
   const backend = useRef<Backend | null>(null)
   const toastTimer = useRef<number | undefined>(undefined)
@@ -83,6 +86,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setLoadError(null)
     try {
       setStored(await b.load())
+      setSupportsShipping(b.supportsShipping)
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : '데이터를 읽지 못했습니다.')
     } finally {
@@ -161,6 +165,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     supabaseConfigured,
     loading,
     loadError,
+    supportsShipping,
     stored,
     settings,
     prep,
