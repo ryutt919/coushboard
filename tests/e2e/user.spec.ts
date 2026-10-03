@@ -177,6 +177,8 @@ test.describe('H5: 화면 E2E (Supabase)', () => {
       return f
     }
     const upload = (file: string) => page.getByTestId('file-input').setInputFiles(file)
+    // E2E_SHIPPING=0: DB에 배송비 컬럼(마이그레이션)이 아직 없는 환경. 이때는 배송비 저장 대신 안내가 나와야 한다
+    const shipping = process.env.E2E_SHIPPING !== '0'
 
     // 쿠팡 내보내기 픽스처를 먼저 올린다(21행)
     await wipe(page)
@@ -191,21 +193,27 @@ test.describe('H5: 화면 E2E (Supabase)', () => {
     await expect(panel.getByTestId('format-notes')).toContainText('5,500원')
     await expect(panel.getByTestId('plan-new')).toHaveText('4')
     await expect(panel.getByTestId('plan-skip')).toHaveText('2') // 이미 쿠팡 내보내기로 올린 주문 2개
-    await expect(panel.getByTestId('plan-shipping')).toHaveText('1') // 그중 배송비가 있는 주문 1개는 배송비만 합쳐 넣는다
+    if (shipping) await expect(panel.getByTestId('plan-shipping')).toHaveText('1') // 그중 배송비가 있는 주문 1개는 배송비만 합쳐 넣는다
+    else await expect(panel.getByTestId('shipping-unsupported')).toBeVisible()
     await expectNoSeriousA11y(page, '외부 도구 형식 확인')
     await panel.getByTestId('upload-confirm').click()
 
     // 새 주문 5행이 추가되고, 건너뛴 주문과 배송비가 안내된다
     await expect(page.getByTestId('res-raw')).toHaveText('26행', { timeout: 20000 })
     await expect(page.getByTestId('result-skipped')).toContainText('2개')
-    await expect(page.getByTestId('result-skipped')).toContainText('배송비만 합쳐 넣었습니다')
-    await expect(page.getByTestId('result-shipping')).toContainText('5,500원') // 새 주문 3,000원 + 기존 주문에 합친 2,500원
+    if (shipping) {
+      await expect(page.getByTestId('result-skipped')).toContainText('배송비만 합쳐 넣었습니다')
+      await expect(page.getByTestId('result-shipping')).toContainText('5,500원') // 새 주문 3,000원 + 기존 주문에 합친 2,500원
+    } else {
+      await expect(page.getByTestId('result-shipping')).toHaveCount(0)
+    }
 
     // 총 지출은 금액만(341,050 + 39,800), 배송비는 따로
     await page.goto('/#/')
     await allPeriod(page)
     await expect(total(page)).toContainText('380,850')
-    await expect(page.getByTestId('kpi-shipping')).toContainText('5,500원')
+    if (shipping) await expect(page.getByTestId('kpi-shipping')).toContainText('5,500원')
+    else await expect(page.getByTestId('kpi-shipping')).toHaveCount(0)
 
     // 같은 파일은 다시 올릴 수 없다
     await page.goto('/#/upload')
