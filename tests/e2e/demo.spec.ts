@@ -129,6 +129,11 @@ test.describe('예시 화면 (mock 데이터)', () => {
     const yearButtons = page.locator('[data-testid^="year-"]')
     expect(await yearButtons.evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))).toEqual(['year-2026', 'year-2025', 'year-2024'])
 
+    // 상단 기간 버튼은 전체, 연도별, 직접 지정뿐이다(이번 달, 최근 3개월, 올해는 없음)
+    const top = page.getByRole('group', { name: '기간 프리셋' })
+    expect((await top.getByRole('button').allInnerTexts()).map((t) => t.trim())).toEqual(['전체', '2026년', '2025년', '2024년', '직접 지정'])
+    for (const gone of ['이번 달', '최근 3개월', '올해']) await expect(top.getByRole('button', { name: gone, exact: true })).toHaveCount(0)
+
     const totalAll = await page.getByTestId('kpi-total').innerText()
     await page.getByTestId('year-2025').click()
     await expect(page.getByTestId('year-2025')).toHaveAttribute('aria-pressed', 'true')
@@ -193,6 +198,33 @@ test.describe('예시 화면 (mock 데이터)', () => {
     await expectNoSeriousA11y(page, '세부 내역 검색 전체')
   })
 
+  test('세부 내역 검색: 한 번만 산 품목도 목록에 나오고, 기간 밖의 품목은 안내하며 전체 기간으로 바꿀 수 있다', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: '예시 화면 보기' }).click()
+    await page.getByTestId('kpi-total').waitFor()
+    await page.getByRole('tab', { name: '세부 내역' }).click()
+    const search = page.getByRole('searchbox', { name: '품목 검색' })
+
+    // 전체 기간: 목록의 품목 수 = "전체" 항목의 품목 수, 한 번만 산 품목 포함
+    await search.fill('샘플')
+    const all = page.getByTestId('all-item')
+    await expect(all).toBeVisible()
+    const nGroups = Number(((await all.innerText()).match(/(\d+)개 품목/) ?? ['', '0'])[1])
+    expect(nGroups).toBeGreaterThan(1)
+    await expect(page.getByTestId('product-list').getByRole('button')).toHaveCount(nGroups + 1) // 전체 항목 + 개별 품목
+    await expect(page.getByText('한 번만 산 품목 포함').first()).toBeVisible()
+    await expect(page.getByTestId('outside-notice')).toHaveCount(0)
+
+    // 데이터가 적은 2024년으로 좁히면 기간 밖에 더 있다는 안내가 나온다
+    await page.getByTestId('year-2024').click()
+    await expect(page.getByTestId('outside-notice')).toBeVisible()
+    await expect(page.getByTestId('outside-notice')).toContainText('샘플')
+    await page.getByRole('button', { name: '전체 기간으로 보기' }).click()
+    await expect(page.getByRole('group', { name: '기간 프리셋' }).getByRole('button', { name: '전체', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByTestId('outside-notice')).toHaveCount(0)
+    await expect(page.getByTestId('all-item')).toBeVisible()
+  })
+
   test('세부 내역 그래프: 기간을 직접 정하고 월별과 연도별을 고를 수 있다', async ({ page }) => {
     await page.goto('/')
     await page.getByRole('button', { name: '예시 화면 보기' }).click()
@@ -229,7 +261,7 @@ test.describe('예시 화면 (mock 데이터)', () => {
     await page.getByRole('button', { name: '위에서 고른 기간' }).click()
     await expect(bars).toHaveCount(3)
 
-    // 그래프 기간은 위쪽 기간과 별개: 위에서 올해로 좁혀도 그래프는 직접 정한 기간을 쓴다
+    // 그래프 기간은 위쪽 기간과 별개: 위에서 한 해로 좁혀도 그래프는 직접 정한 기간을 쓴다
     await page.getByRole('button', { name: '전체 기간' }).click()
     await expect(bars).toHaveCount(3)
     await expectNoSeriousA11y(page, '세부 내역 그래프')

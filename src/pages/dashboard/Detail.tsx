@@ -4,6 +4,7 @@ import { addMonths, daysBetween, dot, planBuckets } from '../../lib/dates'
 import { fmt } from '../../lib/format'
 import { selectRows } from '../../lib/pipeline'
 import { round2 } from '../../lib/normalize'
+import { groupSummaries, matchesNeedle } from '../../lib/stats'
 import type { EnrichedRow, ProductSummary, Summary } from '../../lib/types'
 import { useApp } from '../../state/AppState'
 import type { Period } from '../Dashboard'
@@ -11,7 +12,7 @@ import { labeler } from './chart'
 
 type Sort = 'count' | 'amount'
 
-export function Detail({ period, sel, summary }: { period: Period; sel: EnrichedRow[]; summary: Summary }) {
+export function Detail({ period, sel, summary, onWidenPeriod }: { period: Period; sel: EnrichedRow[]; summary: Summary; onWidenPeriod?: () => void }) {
   const app = useApp()
   const { from, to } = period
   const [sort, setSort] = useState<Sort>('count')
@@ -28,15 +29,26 @@ export function Detail({ period, sel, summary }: { period: Period; sel: Enriched
 
   const needle = q.trim().toLowerCase()
 
+  // 검색어가 있으면 이 기간의 모든 일치 구매(한 번만 산 품목 포함), 없으면 2번 이상 산 품목
+  const matchRows = useMemo(() => (needle ? sel.filter((r) => matchesNeedle(r, needle)) : []), [sel, needle])
+
   const products = useMemo(() => {
-    const list = summary.products.filter((p) => !needle || p.group.toLowerCase().includes(needle) || p.aliases.some((a) => a.toLowerCase().includes(needle)))
+    const list = needle ? groupSummaries(matchRows) : summary.products
     return [...list].sort((a, b) => (sort === 'count' ? b.n - a.n || b.amount - a.amount : b.amount - a.amount || b.n - a.n))
-  }, [summary.products, sort, needle])
+  }, [summary.products, matchRows, sort, needle])
+
+  // 이 기간 밖(다른 기간)에도 일치하는 품목이 있으면 알려 준다
+  const outsideCount = useMemo(() => {
+    if (!needle) return 0
+    const inPeriod = new Set(matchRows.map((r) => r.group))
+    const everywhere = selectRows(app.prep.kept, app.range.start, app.range.end, period.status).filter((r) => matchesNeedle(r, needle))
+    return new Set(everywhere.map((r) => r.group).filter((g) => !inPeriod.has(g))).size
+  }, [needle, matchRows, app.prep.kept, app.range.start, app.range.end, period.status])
 
   // 검색어가 있으면 그 단어가 들어간 모든 구매(한 번만 산 품목 포함)를 한 번에 보여 주는 "전체" 항목을 만든다
   const allView = useMemo<ProductSummary | null>(() => {
     if (!needle) return null
-    const rows = sel.filter((r) => r.group.toLowerCase().includes(needle) || r.base.toLowerCase().includes(needle) || r.name.toLowerCase().includes(needle))
+    const rows = matchRows
     const groups = [...new Set(rows.map((r) => r.group))]
     if (groups.length < 2) return null
     const days = [...new Set(rows.map((r) => r.date))].sort()
@@ -50,7 +62,7 @@ export function Detail({ period, sel, summary }: { period: Period; sel: Enriched
       max_unit_price: round2(Math.max(...rows.map((r) => r.unit_price))),
       aliases: groups.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
     }
-  }, [sel, needle, q])
+  }, [matchRows, needle, q])
 
   if (summary.products.length === 0) {
     return (
@@ -66,9 +78,7 @@ export function Detail({ period, sel, summary }: { period: Period; sel: Enriched
   const lines = !cur
     ? []
     : isAll
-      ? sel
-          .filter((r) => r.group.toLowerCase().includes(needle) || r.base.toLowerCase().includes(needle) || r.name.toLowerCase().includes(needle))
-          .sort((a, b) => (a.dt < b.dt ? -1 : a.dt > b.dt ? 1 : a.idx - b.idx))
+      ? [...matchRows].sort((a, b) => (a.dt < b.dt ? -1 : a.dt > b.dt ? 1 : a.idx - b.idx))
       : sel.filter((r) => r.group === cur.group).sort((a, b) => (a.dt < b.dt ? -1 : a.dt > b.dt ? 1 : a.idx - b.idx))
   const days = [...new Set(lines.map((l) => l.date))].sort()
   const gaps = days.slice(1).map((d, i) => daysBetween(days[i], d))
@@ -79,7 +89,7 @@ export function Detail({ period, sel, summary }: { period: Period; sel: Enriched
   const lab = labeler(chartFrom, chartTo, force)
   // 그래프는 위쪽 기간과 별개로 자기 기간의 구매를 다시 모은다(같은 상태 필터 적용)
   const inView = (r: EnrichedRow) =>
-    isAll ? r.group.toLowerCase().includes(needle) || r.base.toLowerCase().includes(needle) || r.name.toLowerCase().includes(needle) : !!cur && r.group === cur.group
+    isAll ? matchesNeedle(r, needle) : !!cur && r.group === cur.group
   const chartLines = selectRows(app.prep.kept, chartFrom, chartTo, period.status).filter(inView)
   const pb: Record<string, { a: number; n: number }> = {}
   for (const k of plan.keys) pb[k] = { a: 0, n: 0 }
@@ -116,7 +126,7 @@ export function Detail({ period, sel, summary }: { period: Period; sel: Enriched
           <div style={{ padding: '16px 16px 12px' }}>
             <h2 style={{ fontSize: 16, fontWeight: 700 }}>자주 산 품목</h2>
             <div className="sub" style={{ marginTop: 2 }}>
-              선택한 기간에 2번 이상 산 품목 · {summary.products.length}개
+              {needle ? `선택한 기간의 검색 결과 · ${products.length}개 품목 (한 번만 산 품목 포함)` : `선택한 기간에 2번 이상 산 품목 · ${summary.products.length}개`}
             </div>
             <div className="seg" style={{ marginTop: 12 }} role="group" aria-label="정렬">
               {([['count', '구매 횟수순'], ['amount', '지출 금액순']] as const).map(([k, label]) => (
@@ -131,6 +141,21 @@ export function Detail({ period, sel, summary }: { period: Period; sel: Enriched
             </label>
           </div>
           <div style={{ borderTop: '1px solid var(--line-2)', maxHeight: 640, overflowY: 'auto' }} data-testid="product-list">
+            {outsideCount > 0 && (
+              <div data-testid="outside-notice" className="notice info" style={{ margin: 12, padding: '10px 12px', fontSize: 13, alignItems: 'center' }}>
+                <div>
+                  선택한 기간 밖에도 '{q.trim()}' 품목이 <strong>{outsideCount}개</strong> 더 있습니다.
+                  {onWidenPeriod && (
+                    <>
+                      {' '}
+                      <button type="button" className="btn ghost" style={{ height: 'auto', padding: 0, fontSize: 13 }} onClick={onWidenPeriod}>
+                        전체 기간으로 보기
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
             {products.length === 0 && !allView && (
               <div className="sub" style={{ padding: 20 }}>
                 검색 결과가 없습니다.

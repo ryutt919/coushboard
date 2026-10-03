@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Layout } from '../components/Layout'
 import { coverage } from '../lib/coverage'
-import { PRESETS, presetRange, type PresetName } from '../lib/dates'
+import { presetRange, type PresetName } from '../lib/dates'
+
+// 상단 기간 버튼: 전체, 데이터가 있는 연도별, 직접 지정. 이번 달, 최근 3개월, 올해 버튼은 두지 않는다
+const TOP_PRESETS: PresetName[] = ['전체']
 import { selectRows, summarize } from '../lib/pipeline'
 import type { StatusFilter } from '../lib/types'
 import { useApp } from '../state/AppState'
@@ -92,7 +95,7 @@ export function Dashboard() {
       <main className="main">
         <section aria-label="기간 선택" className="card" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} role="group" aria-label="기간 프리셋">
-            {[...PRESETS.filter((p) => p !== '직접 지정'), ...years, '직접 지정'].map((p) => (
+            {[...TOP_PRESETS, ...years, '직접 지정'].map((p) => (
               <button
                 key={p}
                 type="button"
@@ -166,7 +169,7 @@ export function Dashboard() {
             {tab === '개요' ? (
               <Overview period={period} sel={sel} summary={summary} cov={cov} />
             ) : (
-              <Detail period={period} sel={sel} summary={summary} />
+              <Detail period={period} sel={sel} summary={summary} onWidenPeriod={() => setPreset('전체')} />
             )}
           </div>
         </section>
