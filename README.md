@@ -18,10 +18,10 @@
 | 카테고리 정리 | 미분류 원클릭 지정, 규칙 추가 미리보기와 예외, 규칙 충돌 감지, JSON 백업과 복원 |
 
 ## CSV 업로드 데이터 구조
-https://chromewebstore.google.com/detail/%EC%BF%A0%ED%8C%A1-%EA%B0%80%EA%B3%84%EB%B6%80-%E2%80%94-%EC%A3%BC%EB%AC%B8%EB%82%B4%EC%97%AD-%EC%97%91%EC%85%80-%EC%B6%94%EC%B6%9C-%EC%A7%80%EC%B6%9C-%EB%B6%84%EC%84%9D/abifielhojkgohomnhabbplnnjjfgmpf
-<img width="556" height="372" alt="image" src="https://github.com/user-attachments/assets/04f5e4ad-4135-4b1d-8ac7-f9708df74877" />
+주문 내역 다운로드 구글 확장 : https://chromewebstore.google.com/detail/%EC%BF%A0%ED%8C%A1-%EA%B0%80%EA%B3%84%EB%B6%80-%E2%80%94-%EC%A3%BC%EB%AC%B8%EB%82%B4%EC%97%AD-%EC%97%91%EC%85%80-%EC%B6%94%EC%B6%9C-%EC%A7%80%EC%B6%9C-%EB%B6%84%EC%84%9D/abifielhojkgohomnhabbplnnjjfgmpf
 
-<img width="1045" height="531" alt="image" src="https://github.com/user-attachments/assets/a972f1b3-5872-441a-844c-890e723f08d2" />
+
+|<img width="556" height="372" alt="image" src="https://github.com/user-attachments/assets/04f5e4ad-4135-4b1d-8ac7-f9708df74877" />|<img width="1045" height="531" alt="image" src="https://github.com/user-attachments/assets/a972f1b3-5872-441a-844c-890e723f08d2" />|
 
 
 업로드 화면에서 파일을 올리면 브라우저에서 읽고 검증한 뒤 저장합니다. 파일은 **UTF-8**(BOM 있어도 됨, 줄바꿈 CRLF/LF 모두 가능)이어야 하고, 엑셀이라면 "CSV UTF-8(쉼표로 분리)"로 저장하세요. 첫 줄은 열 이름(헤더)입니다. 헤더에 `receipt_key` 가 있으면 영수증 CSV로, 아니면 주문목록 CSV로 인식합니다.
