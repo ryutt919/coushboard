@@ -9,6 +9,17 @@
 - 인증과 저장: Supabase Auth + Postgres + RLS (사용자마다 자기 데이터만 접근)
 - 누구나 이메일과 비밀번호로 회원가입해 쓸 수 있고, 가입 없이 가짜 데이터로 만든 **예시 화면**을 볼 수 있습니다
 
+
+
+## CSV 업로드 데이터 구조
+주문 내역 다운로드 구글 확장 : https://chromewebstore.google.com/detail/%EC%BF%A0%ED%8C%A1-%EA%B0%80%EA%B3%84%EB%B6%80-%E2%80%94-%EC%A3%BC%EB%AC%B8%EB%82%B4%EC%97%AD-%EC%97%91%EC%85%80-%EC%B6%94%EC%B6%9C-%EC%A7%80%EC%B6%9C-%EB%B6%84%EC%84%9D/abifielhojkgohomnhabbplnnjjfgmpf
+
+| 주문 내역 수집 | csv 다운 |
+|---|---|
+|<img width="556" height="372" alt="image" src="https://github.com/user-attachments/assets/04f5e4ad-4135-4b1d-8ac7-f9708df74877" />|<img width="1045" height="531" alt="image" src="https://github.com/user-attachments/assets/a972f1b3-5872-441a-844c-890e723f08d2" />|
+
+
+업로드 화면에서 파일을 올리면 브라우저에서 읽고 검증한 뒤 저장합니다. 파일은 **UTF-8**(BOM 있어도 됨, 줄바꿈 CRLF/LF 모두 가능)이어야 하고, 엑셀이라면 "CSV UTF-8(쉼표로 분리)"로 저장하세요. 첫 줄은 열 이름(헤더)입니다. 헤더에 `receipt_key` 가 있으면 영수증 CSV로, 아니면 주문목록 CSV로 인식합니다.
 ## 화면
 
 | 화면 | 내용 |
@@ -40,17 +51,6 @@
 - 건너뛴 주문에도 **배송비만은 기존 주문에 합쳐 넣습니다**(주문 단위 합계를 첫 행에 담음).
 - 같은 외부 도구로 먼저 올린 주문(임시 번호)은 같은 수준이라 새 파일 내용으로 바꿉니다.
 - 올릴 새 주문도 합칠 배송비도 없으면 아무것도 저장하지 않고 안내만 합니다.
-
-## CSV 업로드 데이터 구조
-주문 내역 다운로드 구글 확장 : https://chromewebstore.google.com/detail/%EC%BF%A0%ED%8C%A1-%EA%B0%80%EA%B3%84%EB%B6%80-%E2%80%94-%EC%A3%BC%EB%AC%B8%EB%82%B4%EC%97%AD-%EC%97%91%EC%85%80-%EC%B6%94%EC%B6%9C-%EC%A7%80%EC%B6%9C-%EB%B6%84%EC%84%9D/abifielhojkgohomnhabbplnnjjfgmpf
-
-| 주문 내역 수집 | csv 다운 |
-|---|---|
-|<img width="556" height="372" alt="image" src="https://github.com/user-attachments/assets/04f5e4ad-4135-4b1d-8ac7-f9708df74877" />|<img width="1045" height="531" alt="image" src="https://github.com/user-attachments/assets/a972f1b3-5872-441a-844c-890e723f08d2" />|
-
-
-업로드 화면에서 파일을 올리면 브라우저에서 읽고 검증한 뒤 저장합니다. 파일은 **UTF-8**(BOM 있어도 됨, 줄바꿈 CRLF/LF 모두 가능)이어야 하고, 엑셀이라면 "CSV UTF-8(쉼표로 분리)"로 저장하세요. 첫 줄은 열 이름(헤더)입니다. 헤더에 `receipt_key` 가 있으면 영수증 CSV로, 아니면 주문목록 CSV로 인식합니다.
-
 ### 1. 쿠팡 주문목록 CSV (주 입력)
 
 쿠팡 주문목록을 내보낸 파일 형식입니다. 열 이름이 정확히 같아야 하고, 이름이 다르면 업로드 화면에서 어떤 열이 없는지 보여 주고 직접 짝지을 수 있습니다.
