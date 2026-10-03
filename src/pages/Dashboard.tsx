@@ -1,6 +1,5 @@
 import { useMemo, useState } from 'react'
 import { Layout } from '../components/Layout'
-import { coverage } from '../lib/coverage'
 import { presetRange, type PresetName } from '../lib/dates'
 
 // 상단 기간 버튼: 전체, 데이터가 있는 연도별, 직접 지정. 이번 달, 최근 3개월, 올해 버튼은 두지 않는다
@@ -39,7 +38,6 @@ export function Dashboard() {
 
   const sel = useMemo(() => selectRows(prep.kept, from, to, status), [prep.kept, from, to, status])
   const summary = useMemo(() => summarize(prep.kept, from, to, status, range.end), [prep.kept, from, to, status, range.end])
-  const cov = useMemo(() => coverage(prep.kept), [prep.kept])
   const period: Period = { from, to, status }
 
   if (app.loading && !app.hasData) {
@@ -167,7 +165,7 @@ export function Dashboard() {
           </div>
           <div id="tabpanel" role="tabpanel" aria-labelledby={`tab-${tab}`} style={{ background: 'var(--surface-2)', padding: 20 }}>
             {tab === '개요' ? (
-              <Overview period={period} sel={sel} summary={summary} cov={cov} />
+              <Overview period={period} sel={sel} summary={summary} />
             ) : (
               <Detail period={period} sel={sel} summary={summary} onWidenPeriod={() => setPreset('전체')} />
             )}

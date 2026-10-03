@@ -1,10 +1,7 @@
 import { useMemo, useState } from 'react'
-import { CatChip, SearchIcon, WarnIcon } from '../../components/Common'
-import type { Coverage } from '../../lib/coverage'
-import { yymm } from '../../lib/coverage'
+import { CatChip, SearchIcon } from '../../components/Common'
 import { dot } from '../../lib/dates'
 import { csvEscape, downloadText, fmt, man } from '../../lib/format'
-import { selectRows } from '../../lib/pipeline'
 import { unitStats } from '../../lib/stats'
 import type { EnrichedRow, Summary } from '../../lib/types'
 import { useApp } from '../../state/AppState'
@@ -22,36 +19,15 @@ const SORT_LABEL: Record<SortKey, [string, string]> = {
   amount: ['금액 낮은 순', '금액 높은 순'],
 }
 
-export function Overview({ period, sel, summary, cov }: { period: Period; sel: EnrichedRow[]; summary: Summary; cov: Coverage | null }) {
+export function Overview({ period, sel, summary }: { period: Period; sel: EnrichedRow[]; summary: Summary }) {
   const app = useApp()
-  const { from, to, status } = period
+  const { from, to } = period
   const fallback = app.settings.rules.fallback
   const [cat, setCat] = useState<string | null>(null)
   const [q, setQ] = useState('')
   const [shown, setShown] = useState(PAGE)
   const [edit, setEdit] = useState<EnrichedRow | null>(null)
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'dt', dir: 'desc' })
-
-  const inRange = useMemo(() => selectRows(app.prep.kept, from, to, 'all'), [app.prep.kept, from, to])
-  const ret = inRange.filter((r) => r.status === '반품완료')
-  const can = inRange.filter((r) => r.status === '취소완료')
-  const sum = (l: EnrichedRow[]) => l.reduce((a, r) => a + r.amount, 0)
-
-  let bannerStrong: string
-  let bannerRest: string
-  if (status === 'ok') {
-    bannerStrong = `이 기간의 반품 ${ret.length}건·취소 ${can.length}건(${fmt(sum(ret) + sum(can))}원)은 집계에서 뺐습니다.`
-    bannerRest = '금액은 주문목록의 가격 × 수량이라, 쿠폰·쿠팡캐시가 적용된 실제 카드 청구액과 일부 다를 수 있습니다.'
-  } else if (status === 'all') {
-    bannerStrong = `반품·취소 ${ret.length + can.length}건(${fmt(sum(ret) + sum(can))}원)이 합계에 들어 있습니다.`
-    bannerRest = '실제로 받지 않은 상품까지 더한 값이라 지출보다 큽니다.'
-  } else {
-    bannerStrong = '반품·취소된 상품만 보고 있습니다.'
-    bannerRest = '어떤 상품을 자주 돌려보냈는지 확인하는 용도입니다.'
-  }
-  if (cov?.sparse && from <= `${cov.sparse.to}-31`) {
-    bannerRest += ` ${yymm(cov.sparse.to)} 이전은 주문 기록이 ${cov.sparse.rows}건뿐이라 드문드문합니다.`
-  }
 
   const total = summary.total
   // 가장 큰 구매와 상품당 평균은 상품 1개당 가격(판매가) 기준이다. 가격 x 수량(금액)이 아니다.
@@ -118,13 +94,6 @@ export function Overview({ period, sel, summary, cov }: { period: Period; sel: E
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-      <div role="note" className="notice" data-testid="banner">
-        <WarnIcon />
-        <div>
-          <strong>{bannerStrong}</strong> {bannerRest}
-        </div>
-      </div>
-
       <section aria-label="요약" className="kpis">
         <div className="kpi">
           <div className="l">총 지출</div>
