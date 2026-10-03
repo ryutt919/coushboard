@@ -199,6 +199,7 @@ test.describe('예시 화면 (mock 데이터)', () => {
     await page.getByTestId('kpi-total').waitFor()
     await page.getByRole('tab', { name: '세부 내역' }).click()
     const bars = page.getByTestId('pbar')
+    await page.getByTestId('chart-trim').uncheck() // 이 시나리오는 정해진 기간 그대로의 막대 개수를 본다
 
     // 전체 기간(18개월 초과)은 자동으로 연도별
     await expect(page.getByTestId('chart-title')).toContainText('연도별')
@@ -232,6 +233,49 @@ test.describe('예시 화면 (mock 데이터)', () => {
     await page.getByRole('button', { name: '전체 기간' }).click()
     await expect(bars).toHaveCount(3)
     await expectNoSeriousA11y(page, '세부 내역 그래프')
+  })
+
+  test('세부 내역 그래프: 막대에 마우스를 올리면 금액과 건수가 보이고, 데이터 없는 구간은 x축에서 줄어든다', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: '예시 화면 보기' }).click()
+    await page.getByTestId('kpi-total').waitFor()
+    await page.getByRole('tab', { name: '세부 내역' }).click()
+    await page.getByTestId('chart-unit-month').click()
+
+    // 마우스를 올리면 직접 만든 툴팁에 금액과 건수가 나온다
+    const bars = page.getByTestId('pbar')
+    const target = bars.nth(Math.floor((await bars.count()) / 2))
+    await expect(page.getByTestId('chart-tip')).toHaveCount(0)
+    await target.hover()
+    const tip = page.getByTestId('chart-tip')
+    await expect(tip).toBeVisible()
+    await expect(tip).toContainText('원')
+    await expect(tip).toContainText('건')
+    // 툴팁이 막대의 aria-label과 같은 값을 보여 준다
+    const label = (await target.getAttribute('aria-label')) ?? ''
+    const money = (label.match(/([\d,]+)원/) ?? ['', ''])[1]
+    await expect(tip).toContainText(money)
+    // 마우스가 나가면 사라진다
+    await page.getByTestId('chart-title').hover()
+    await expect(tip).toHaveCount(0)
+
+    // x축 자동 조정: 데이터가 없는 2020~2023은 줄이고, 끄면 84개월 전부 보인다
+    await page.getByTestId('chart-from').fill('2020-01-01')
+    await page.getByTestId('chart-to').fill('2026-12-31')
+    const shown = await bars.count()
+    expect(shown).toBeLessThan(30) // 2024-11 ~ 2026-09 근처만
+    expect(shown).toBeGreaterThan(15)
+    await expect(page.getByTestId('detail-chart')).toContainText('빈 구간은 줄였습니다')
+    await page.getByTestId('chart-trim').uncheck()
+    await expect(bars).toHaveCount(84)
+    await page.getByTestId('chart-trim').check()
+    await expect(bars).toHaveCount(shown)
+
+    // 구매가 하나도 없는 기간이면 안내가 나온다
+    await page.getByTestId('chart-from').fill('2020-01-01')
+    await page.getByTestId('chart-to').fill('2021-12-31')
+    await expect(page.getByTestId('chart-empty')).toBeVisible()
+    await expectNoSeriousA11y(page, '그래프 툴팁과 자동 축')
   })
 
   test('카테고리 정리는 받은 상품만 다루고, 카테고리를 직접 추가할 수 있다', async ({ page }) => {

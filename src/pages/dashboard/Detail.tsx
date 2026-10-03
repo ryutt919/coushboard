@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { Modal, SearchIcon } from '../../components/Common'
 import { addMonths, daysBetween, dot, planBuckets } from '../../lib/dates'
 import { fmt } from '../../lib/format'
@@ -22,6 +22,9 @@ export function Detail({ period, sel, summary }: { period: Period; sel: Enriched
   const [cFrom, setCFrom] = useState<string | null>(null)
   const [cTo, setCTo] = useState<string | null>(null)
   const [unit, setUnit] = useState<'auto' | 'month' | 'year'>('auto')
+  const [trim, setTrim] = useState(true) // 데이터가 없는 앞뒤 구간은 x축에서 줄인다
+  const [hover, setHover] = useState<{ key: string; left: number } | null>(null)
+  const gridRef = useRef<HTMLDivElement>(null)
 
   const needle = q.trim().toLowerCase()
 
@@ -87,15 +90,21 @@ export function Detail({ period, sel, summary }: { period: Period; sel: Enriched
       pb[k].n += 1
     }
   }
-  const dense = plan.keys.length > 18
-  const labelStep = Math.max(1, Math.ceil(plan.keys.length / 16))
+  // x축 자동 조정: 데이터가 있는 첫 구간부터 마지막 구간까지만 보여 준다(중간에 빈 달은 그대로 둠)
+  const firstIdx = plan.keys.findIndex((k) => pb[k].n > 0)
+  const lastIdx = plan.keys.length - 1 - [...plan.keys].reverse().findIndex((k) => pb[k].n > 0)
+  const hasChartData = firstIdx >= 0
+  const shownKeys = trim && hasChartData ? plan.keys.slice(firstIdx, lastIdx + 1) : plan.keys
+  const trimmed = shownKeys.length < plan.keys.length
+  const dense = shownKeys.length > 18
+  const labelStep = Math.max(1, Math.ceil(shownKeys.length / 16))
   const chartPresets: { label: string; from: string | null; to: string | null }[] = [
     { label: '위에서 고른 기간', from: null, to: null },
     { label: '전체 기간', from: app.range.start, to: app.range.end },
     { label: '최근 12개월', from: `${addMonths(app.range.end, -11).slice(0, 7)}-01`, to: app.range.end },
     { label: '올해', from: `${app.range.end.slice(0, 4)}-01-01`, to: app.range.end },
   ]
-  const pmax = Math.max(1, ...plan.keys.map((k) => pb[k].a))
+  const pmax = Math.max(1, ...shownKeys.map((k) => pb[k].a))
   const minUnit = cur ? cur.min_unit_price : 0
   const cats = [...new Set(lines.map((l) => l.category))]
   const category = isAll ? (cats.length === 1 ? cats[0] : `여러 카테고리 (${cats.length}개)`) : lines.length ? lines[lines.length - 1].category : ''
@@ -253,7 +262,7 @@ export function Detail({ period, sel, summary }: { period: Period; sel: Enriched
                     {lab.yearly ? '연도별' : '월별'} 구매 · {dot(chartFrom)} – {dot(chartTo)}
                   </h3>
                   <span className="sub" style={{ fontSize: 12 }}>
-                    {dense ? '막대에 마우스를 올리면 금액과 건수가 보입니다' : '막대 위 = 지출(원) · 아래 = 구매 건수'}
+                    {dense ? '막대에 마우스를 올리면 금액과 건수가 보입니다' : '막대 위 = 지출(원) · 아래 = 구매 건수 · 마우스를 올려도 볼 수 있습니다'}
                   </span>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginTop: 10 }}>
@@ -292,40 +301,94 @@ export function Detail({ period, sel, summary }: { period: Period; sel: Enriched
                       </button>
                     ))}
                   </div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, minHeight: 34 }}>
+                    <input type="checkbox" data-testid="chart-trim" checked={trim} onChange={(e) => setTrim(e.target.checked)} style={{ width: 16, height: 16, accentColor: 'var(--accent)' }} />
+                    데이터가 있는 구간만 보기
+                  </label>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${plan.keys.length}, minmax(0, 1fr))`, gap: dense ? 2 : 6, alignItems: 'end', height: 180, marginTop: 12, borderBottom: '1px solid #c9cdd5' }} role="img" aria-label="품목 구매 막대 그래프">
-                  {plan.keys.map((k) => {
-                    const fut = plan.isFuture(k, app.range.end)
-                    return (
-                      <div
-                        key={k}
-                        data-testid="pbar"
-                        title={fut ? `${lab.label(k)}: 데이터 없음` : `${lab.label(k)}: ${fmt(pb[k].a)}원, ${pb[k].n}건`}
-                        style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4, minWidth: 0 }}
-                      >
-                        {!dense && (
-                          <span className="bar-val" style={{ color: fut ? '#6b7180' : 'var(--ink)' }}>
-                            {fut ? '—' : pb[k].a ? fmt(pb[k].a) : ''}
-                          </span>
-                        )}
-                        <div className="bar" style={{ maxWidth: 40, height: fut || !pb[k].a ? 0 : Math.max(4, Math.round((pb[k].a / pmax) * (dense ? 160 : 140))) }} />
-                      </div>
-                    )
-                  })}
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${plan.keys.length}, minmax(0, 1fr))`, gap: dense ? 2 : 6, marginTop: 6 }} aria-hidden="true">
-                  {plan.keys.map((k, i) => (
-                    <div key={k} style={{ textAlign: 'center', minWidth: 0 }}>
-                      <div style={{ fontSize: dense ? 10 : 12, color: 'var(--ink-2)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'visible' }}>{i % labelStep === 0 ? lab.label(k) : ''}</div>
-                      {!dense && (
-                        <div className="sub" style={{ fontSize: 11, marginTop: 1 }}>
-                          {plan.isFuture(k, app.range.end) ? '' : `${pb[k].n}건`}
+                {!hasChartData ? (
+                  <div className="sub" style={{ marginTop: 12, padding: '36px 0', textAlign: 'center', borderBottom: '1px solid #c9cdd5' }} data-testid="chart-empty">
+                    이 기간에는 구매가 없습니다. 그래프 기간을 넓혀 보세요.
+                  </div>
+                ) : (
+                  <>
+                    <div
+                      ref={gridRef}
+                      role="group"
+                      aria-label="품목 구매 막대 그래프"
+                      onMouseLeave={() => setHover(null)}
+                      style={{ position: 'relative', display: 'grid', gridTemplateColumns: `repeat(${shownKeys.length}, minmax(0, 1fr))`, gap: dense ? 2 : 6, alignItems: 'end', height: 180, marginTop: 12, borderBottom: '1px solid #c9cdd5' }}
+                    >
+                      {shownKeys.map((k) => {
+                        const fut = plan.isFuture(k, app.range.end)
+                        const text = fut ? `${lab.label(k)}: 데이터 없음` : `${lab.label(k)}: ${fmt(pb[k].a)}원, ${pb[k].n}건`
+                        return (
+                          <div
+                            key={k}
+                            role="img"
+                            aria-label={text}
+                            data-testid="pbar"
+                            onMouseEnter={(e) => setHover({ key: k, left: e.currentTarget.offsetLeft + e.currentTarget.offsetWidth / 2 })}
+                            style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4, minWidth: 0, background: hover?.key === k ? '#eef2fd' : undefined, borderRadius: 4 }}
+                          >
+                            {!dense && (
+                              <span className="bar-val" style={{ color: fut ? '#6b7180' : 'var(--ink)' }}>
+                                {fut ? '—' : pb[k].a ? fmt(pb[k].a) : ''}
+                              </span>
+                            )}
+                            <div className="bar" style={{ maxWidth: 40, height: fut || !pb[k].a ? 0 : Math.max(4, Math.round((pb[k].a / pmax) * (dense ? 160 : 140))) }} />
+                          </div>
+                        )
+                      })}
+                      {hover && pb[hover.key] && (
+                        <div
+                          role="tooltip"
+                          data-testid="chart-tip"
+                          style={{
+                            position: 'absolute',
+                            top: 4,
+                            left: Math.min(Math.max(hover.left, 70), Math.max(70, (gridRef.current?.offsetWidth ?? 0) - 70)),
+                            transform: 'translateX(-50%)',
+                            background: 'var(--ink)',
+                            color: '#fff',
+                            padding: '8px 12px',
+                            borderRadius: 8,
+                            fontSize: 12,
+                            lineHeight: 1.5,
+                            whiteSpace: 'nowrap',
+                            pointerEvents: 'none',
+                            zIndex: 5,
+                            boxShadow: '0 4px 12px rgba(21, 23, 28, 0.25)',
+                          }}
+                        >
+                          <div style={{ fontWeight: 700 }}>{lab.label(hover.key)}</div>
+                          {plan.isFuture(hover.key, app.range.end) ? (
+                            <div>데이터 없음</div>
+                          ) : (
+                            <>
+                              <div>지출 {fmt(pb[hover.key].a)}원</div>
+                              <div>구매 {pb[hover.key].n}건</div>
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
-                  ))}
-                </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${shownKeys.length}, minmax(0, 1fr))`, gap: dense ? 2 : 6, marginTop: 6 }} aria-hidden="true">
+                      {shownKeys.map((k, i) => (
+                        <div key={k} style={{ textAlign: 'center', minWidth: 0 }}>
+                          <div style={{ fontSize: dense ? 10 : 12, color: 'var(--ink-2)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'visible' }}>{i % labelStep === 0 ? lab.label(k) : ''}</div>
+                          {!dense && (
+                            <div className="sub" style={{ fontSize: 11, marginTop: 1 }}>
+                              {plan.isFuture(k, app.range.end) ? '' : `${pb[k].n}건`}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
                 <div className="sub" style={{ fontSize: 12, marginTop: 10 }}>
+                  {trimmed && hasChartData && `데이터가 있는 ${lab.label(shownKeys[0])} – ${lab.label(shownKeys[shownKeys.length - 1])}만 보여 줍니다(앞뒤의 빈 구간은 줄였습니다). `}
                   {chartTo > app.range.end && `데이터는 ${dot(app.range.end)}까지입니다. `}
                   {unit === 'auto' && lab.yearly && '18개월이 넘는 기간은 자동으로 연도별로 묶습니다. 월별로 보려면 위의 월별 버튼을 누르거나 그래프 기간을 줄이세요.'}
                 </div>
