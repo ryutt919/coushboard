@@ -17,7 +17,8 @@ export interface Period {
 export function Dashboard() {
   const app = useApp()
   const { prep, range } = app
-  const [preset, setPreset] = useState<PresetName>('전체')
+  // 프리셋 이름('전체' 등) 또는 연도('2026')
+  const [preset, setPreset] = useState<string>('전체')
   const [custom, setCustom] = useState<[string, string] | null>(null)
   const [status, setStatus] = useState<StatusFilter>('ok')
   const [tab, setTab] = useState<'개요' | '세부 내역'>('개요')
@@ -25,9 +26,13 @@ export function Dashboard() {
   const [from0, to0] = useMemo<[string, string]>(() => {
     if (!app.hasData) return ['', '']
     if (preset === '직접 지정') return custom ?? [range.start, range.end]
-    return presetRange(preset, range.start, range.end)
+    if (/^\d{4}$/.test(preset)) return [`${preset}-01-01`, `${preset}-12-31`]
+    return presetRange(preset as Exclude<PresetName, '직접 지정'>, range.start, range.end)
   }, [preset, custom, range, app.hasData])
   const [from, to] = from0 > to0 ? [to0, from0] : [from0, to0]
+
+  // 데이터가 있는 연도만, 최신 연도부터
+  const years = useMemo(() => [...new Set(prep.kept.map((r) => r.date.slice(0, 4)))].sort().reverse(), [prep.kept])
 
   const sel = useMemo(() => selectRows(prep.kept, from, to, status), [prep.kept, from, to, status])
   const summary = useMemo(() => summarize(prep.kept, from, to, status, range.end), [prep.kept, from, to, status, range.end])
@@ -87,18 +92,20 @@ export function Dashboard() {
       <main className="main">
         <section aria-label="기간 선택" className="card" style={{ padding: '16px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap' }}>
           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} role="group" aria-label="기간 프리셋">
-            {PRESETS.map((p) => (
+            {[...PRESETS.filter((p) => p !== '직접 지정'), ...years, '직접 지정'].map((p) => (
               <button
                 key={p}
                 type="button"
                 className={'pill' + (preset === p ? ' on' : '')}
                 aria-pressed={preset === p}
+                data-testid={/^\d{4}$/.test(p) ? `year-${p}` : undefined}
+                aria-label={/^\d{4}$/.test(p) ? `${p}년 전체` : undefined}
                 onClick={() => {
                   if (p === '직접 지정') setCustom([from, to])
                   setPreset(p)
                 }}
               >
-                {p}
+                {/^\d{4}$/.test(p) ? `${p}년` : p}
               </button>
             ))}
           </div>

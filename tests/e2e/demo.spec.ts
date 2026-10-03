@@ -120,6 +120,41 @@ test.describe('예시 화면 (mock 데이터)', () => {
     await expectNoSeriousA11y(page, '결제 내역 정렬')
   })
 
+  test('상단 기간 선택에 데이터가 있는 연도별 버튼이 있고, 누르면 그 해로 기간이 바뀐다', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: '예시 화면 보기' }).click()
+    await page.getByTestId('kpi-total').waitFor()
+
+    // 예시 데이터는 2024-11 ~ 2026-09: 2026, 2025, 2024 순서로, 데이터가 없는 해(2023, 2027)는 없다
+    const yearButtons = page.locator('[data-testid^="year-"]')
+    expect(await yearButtons.evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')))).toEqual(['year-2026', 'year-2025', 'year-2024'])
+
+    const totalAll = await page.getByTestId('kpi-total').innerText()
+    await page.getByTestId('year-2025').click()
+    await expect(page.getByTestId('year-2025')).toHaveAttribute('aria-pressed', 'true')
+    await expect(page.getByLabel('시작일')).toHaveValue('2025-01-01')
+    await expect(page.getByLabel('종료일')).toHaveValue('2025-12-31')
+    await expect(page.getByTestId('kpi-total')).not.toHaveText(totalAll)
+    // 한 해는 월별 12개 막대
+    await expect(page.getByTestId('bar')).toHaveCount(12)
+
+    // 연도별 합계의 합은 전체 합계와 같다
+    const num = async () => Number((await page.getByTestId('kpi-total').innerText()).replace(/[^\d]/g, ''))
+    const y2025 = await num()
+    await page.getByTestId('year-2024').click()
+    const y2024 = await num()
+    await page.getByTestId('year-2026').click()
+    const y2026 = await num()
+    await page.getByRole('button', { name: '전체', exact: true }).click()
+    expect(y2024 + y2025 + y2026).toBe(await num())
+
+    // 세부 내역에서도 같은 기간이 적용된다
+    await page.getByTestId('year-2026').click()
+    await page.getByRole('tab', { name: '세부 내역' }).click()
+    await expect(page.getByTestId('chart-title')).toContainText('2026.01.01')
+    await expectNoSeriousA11y(page, '연도별 기간 버튼')
+  })
+
   test('세부 내역: 검색하면 일치하는 모든 품목의 합계가 기본으로 보이고, 개별 품목도 고를 수 있다', async ({ page }) => {
     await page.goto('/')
     await page.getByRole('button', { name: '예시 화면 보기' }).click()
