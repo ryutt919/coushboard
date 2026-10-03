@@ -20,7 +20,8 @@
 ## CSV 업로드 데이터 구조
 주문 내역 다운로드 구글 확장 : https://chromewebstore.google.com/detail/%EC%BF%A0%ED%8C%A1-%EA%B0%80%EA%B3%84%EB%B6%80-%E2%80%94-%EC%A3%BC%EB%AC%B8%EB%82%B4%EC%97%AD-%EC%97%91%EC%85%80-%EC%B6%94%EC%B6%9C-%EC%A7%80%EC%B6%9C-%EB%B6%84%EC%84%9D/abifielhojkgohomnhabbplnnjjfgmpf
 
-
+| 주문 내역 수집 | csv 다운 |
+|---|---|
 |<img width="556" height="372" alt="image" src="https://github.com/user-attachments/assets/04f5e4ad-4135-4b1d-8ac7-f9708df74877" />|<img width="1045" height="531" alt="image" src="https://github.com/user-attachments/assets/a972f1b3-5872-441a-844c-890e723f08d2" />|
 
 
