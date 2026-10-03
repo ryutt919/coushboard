@@ -1,7 +1,7 @@
 # Supabase와 배포: coushboard
 
 ## Task Metadata
-- **Created/updated at**: 2026-10-03 20:10:00 KST
+- **Created/updated at**: 2026-10-03 21:10:00 KST
 - **Model used**: `claude-sonnet-5-5`
 - **User requirements**: 새 무료 Supabase 프로젝트에 배포, 회원가입 허용, GitHub 레포 푸시, 기능 검증
 
@@ -15,12 +15,16 @@
 
 ### 배송비 마이그레이션 (2026-10-03)
 - **Current value/logic**: `supabase/migrations/20261003000000_shipping_fee.sql`: `order_items.shipping_fee int check (>= 0)` 추가, `replace_orders` 가 `shipping_fee` 도 넣도록 재정의(시그니처와 권한 유지)
-- **Rationale**: 앱이 `shipping_fee` 컬럼을 읽으므로 **이 마이그레이션을 먼저 적용한 뒤에 앱을 배포해야 한다**(미적용 상태로 배포하면 데이터 읽기가 실패). 이전 버전 앱은 새 컬럼 없이도 동작
-- **상태**: 코드와 문서는 완료. 쓰기 도구가 막혀 있어 사용자가 SQL Editor로 적용해야 함
+- **Rationale**: 앱은 컬럼이 없어도 동작한다. 읽을 때 PostgREST 오류 코드 42703(없는 컬럼, 메시지에 shipping_fee)이면 배송비 없이 다시 읽고 `supportsShipping=false`로 기록하며, 그 밖의 오류는 그대로 올린다. 이 상태에서 배송비 저장은 명확한 안내와 함께 보류. 이전 버전 앱도 새 컬럼 없이 동작
+- **상태**: 코드 배포 완료. 컬럼 추가는 쓰기 도구가 막혀 있어 사용자가 SQL Editor로 적용해야 함(M5)
 
 ### 테스트 구성
 - **Current value/logic**: H8 pgTAP + supabase-js, H9 저장 왕복은 `SUPABASE_TEST_URL`, `SUPABASE_TEST_ANON_KEY` 가 있을 때 실행. 이메일 확인이 켜진 프로젝트는 `SUPABASE_TEST_USER_A/B` 로 미리 만든 사용자 사용
 - **Related files**: `tests/db/`, `scripts/verify.mjs`
+
+### 배포 방식 (2026-10-03 정정)
+- **Current value/logic**: Vercel 프로젝트가 GitHub `main`에 연결되어 **푸시하면 자동으로 운영 배포**된다(수동 `vercel deploy --prod`도 가능). 푸시 전에 깨끗한 복제본에서 `npm ci && npm run build`로 검증한다
+- **사고**: `.gitignore`의 `data/`가 `src/data/`를 무시해 규칙 JSON이 GitHub에 없었고, 자동 빌드가 실패했다(운영은 이전 배포 유지). `/data/`로 수정해 해결
 
 ### 호스팅
 - **Current value/logic**: GitHub `ryutt919/coushboard`(비공개) 푸시, Vercel 프로젝트 `coushboard` 운영 배포(https://coushboard.vercel.app, `vercel deploy --prod`). 환경변수 `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`(config 타입). `vercel.json` 에 CSP 포함, 폰트 인라인 끔
@@ -34,3 +38,4 @@
 | 2026-10-02 23:31:00 KST | `claude-sonnet-5-5` | Supabase 배포 | 프로젝트 생성, 배포 시도 | 프로젝트 생성 완료, 마이그레이션과 Vercel은 권한으로 차단 |
 | 2026-10-03 15:50:00 KST | `claude-sonnet-5-5` | Vercel 마무리 | 배포와 검증 | 마이그레이션 적용 확인, Vercel 배포, DB 테스트 16개와 E2E 9개 통과, M3/M4 수정 |
 | 2026-10-03 20:10:00 KST | `claude-sonnet-5-5` | 배송비 컬럼 | 마이그레이션 추가 | `20261003000000_shipping_fee.sql` 작성, 적용 대기 |
+| 2026-10-03 21:10:00 KST | `claude-sonnet-5-5` | 자동 배포 실패 수정 | gitignore와 호환 처리 | src/data 추적, 컬럼 없는 DB 호환, 운영 E2E 17개 통과 |
