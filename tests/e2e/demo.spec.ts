@@ -120,6 +120,85 @@ test.describe('예시 화면 (mock 데이터)', () => {
     await expectNoSeriousA11y(page, '결제 내역 정렬')
   })
 
+  test('세부 내역: 검색하면 일치하는 모든 품목의 합계가 기본으로 보이고, 개별 품목도 고를 수 있다', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: '예시 화면 보기' }).click()
+    await page.getByTestId('kpi-total').waitFor()
+    await page.getByRole('tab', { name: '세부 내역' }).click()
+    await page.getByRole('searchbox', { name: '품목 검색' }).fill('샘플')
+
+    const all = page.getByTestId('all-item')
+    await expect(all).toBeVisible()
+    await expect(all).toHaveAttribute('aria-pressed', 'true') // 기본 선택
+    await expect(page.getByTestId('product-name')).toContainText('샘플')
+    await expect(page.getByTestId('product-name')).toContainText('검색 결과 전체')
+    // 전체 항목의 건수와 상세의 구매 건수가 같다
+    const allCount = ((await all.innerText()).match(/(\d+)건/) ?? ['', '0'])[1]
+    await expect(page.getByTestId('prod-count')).toContainText(`${allCount}건`)
+    expect(Number(allCount)).toBeGreaterThan(1)
+
+    // 개별 품목을 누르면 그 품목만, 건수는 전체보다 적다
+    const first = page.getByTestId('product-list').getByRole('button').nth(1)
+    await first.click()
+    await expect(all).toHaveAttribute('aria-pressed', 'false')
+    await expect(page.getByTestId('product-name')).not.toContainText('검색 결과 전체')
+    const oneCount = Number(((await page.getByTestId('prod-count').innerText()).match(/\d+/) ?? ['0'])[0])
+    expect(oneCount).toBeLessThan(Number(allCount))
+    await expect(page.getByRole('button', { name: '다른 이름 합치기' })).toBeVisible()
+
+    // 다시 전체로
+    await all.click()
+    await expect(page.getByTestId('product-name')).toContainText('검색 결과 전체')
+    await expect(page.getByRole('button', { name: '다른 이름 합치기' })).toHaveCount(0)
+
+    // 검색어를 바꾸면 선택이 전체로 돌아간다
+    await first.click().catch(() => undefined)
+    await page.getByRole('searchbox', { name: '품목 검색' }).fill('모의')
+    await expect(page.getByTestId('all-item')).toHaveAttribute('aria-pressed', 'true')
+    await expectNoSeriousA11y(page, '세부 내역 검색 전체')
+  })
+
+  test('세부 내역 그래프: 기간을 직접 정하고 월별과 연도별을 고를 수 있다', async ({ page }) => {
+    await page.goto('/')
+    await page.getByRole('button', { name: '예시 화면 보기' }).click()
+    await page.getByTestId('kpi-total').waitFor()
+    await page.getByRole('tab', { name: '세부 내역' }).click()
+    const bars = page.getByTestId('pbar')
+
+    // 전체 기간(18개월 초과)은 자동으로 연도별
+    await expect(page.getByTestId('chart-title')).toContainText('연도별')
+    await expect(bars).toHaveCount(3)
+
+    // 월별로 바꾸면 달마다 막대가 나온다(2024-11 ~ 2026-09 = 23개월)
+    await page.getByTestId('chart-unit-month').click()
+    await expect(page.getByTestId('chart-title')).toContainText('월별')
+    await expect(bars).toHaveCount(23)
+
+    // 그래프 기간을 직접 정한다: 2026-01 ~ 2026-06 = 6개월
+    await page.getByTestId('chart-from').fill('2026-01-01')
+    await page.getByTestId('chart-to').fill('2026-06-30')
+    await expect(bars).toHaveCount(6)
+    await expect(page.getByTestId('chart-title')).toContainText('2026.01.01')
+
+    // 자동으로 돌리면 18개월 이하라 월별 그대로, 연도별로 강제하면 한 해
+    await page.getByTestId('chart-unit-auto').click()
+    await expect(bars).toHaveCount(6)
+    await page.getByTestId('chart-unit-year').click()
+    await expect(bars).toHaveCount(1)
+
+    // 바로 선택: 최근 12개월 -> 월별 12개, 위에서 고른 기간으로 되돌리기
+    await page.getByTestId('chart-unit-auto').click()
+    await page.getByRole('button', { name: '최근 12개월' }).click()
+    await expect(bars).toHaveCount(12)
+    await page.getByRole('button', { name: '위에서 고른 기간' }).click()
+    await expect(bars).toHaveCount(3)
+
+    // 그래프 기간은 위쪽 기간과 별개: 위에서 올해로 좁혀도 그래프는 직접 정한 기간을 쓴다
+    await page.getByRole('button', { name: '전체 기간' }).click()
+    await expect(bars).toHaveCount(3)
+    await expectNoSeriousA11y(page, '세부 내역 그래프')
+  })
+
   test('카테고리 정리는 받은 상품만 다루고, 카테고리를 직접 추가할 수 있다', async ({ page }) => {
     await page.goto('/')
     await page.getByRole('button', { name: '예시 화면 보기' }).click()

@@ -1,8 +1,10 @@
 import { useMemo, useState } from 'react'
 import { Modal, SearchIcon } from '../../components/Common'
-import { daysBetween, dot, planBuckets } from '../../lib/dates'
+import { addMonths, daysBetween, dot, planBuckets } from '../../lib/dates'
 import { fmt } from '../../lib/format'
-import type { EnrichedRow, Summary } from '../../lib/types'
+import { selectRows } from '../../lib/pipeline'
+import { round2 } from '../../lib/normalize'
+import type { EnrichedRow, ProductSummary, Summary } from '../../lib/types'
 import { useApp } from '../../state/AppState'
 import type { Period } from '../Dashboard'
 import { labeler } from './chart'
@@ -16,12 +18,36 @@ export function Detail({ period, sel, summary }: { period: Period; sel: Enriched
   const [q, setQ] = useState('')
   const [picked, setPicked] = useState<string | null>(null)
   const [mergeOpen, setMergeOpen] = useState(false)
+  // 그래프만의 기간과 단위. 비워 두면 위쪽에서 고른 기간을 따른다
+  const [cFrom, setCFrom] = useState<string | null>(null)
+  const [cTo, setCTo] = useState<string | null>(null)
+  const [unit, setUnit] = useState<'auto' | 'month' | 'year'>('auto')
+
+  const needle = q.trim().toLowerCase()
 
   const products = useMemo(() => {
-    const needle = q.trim().toLowerCase()
     const list = summary.products.filter((p) => !needle || p.group.toLowerCase().includes(needle) || p.aliases.some((a) => a.toLowerCase().includes(needle)))
     return [...list].sort((a, b) => (sort === 'count' ? b.n - a.n || b.amount - a.amount : b.amount - a.amount || b.n - a.n))
-  }, [summary.products, sort, q])
+  }, [summary.products, sort, needle])
+
+  // 검색어가 있으면 그 단어가 들어간 모든 구매(한 번만 산 품목 포함)를 한 번에 보여 주는 "전체" 항목을 만든다
+  const allView = useMemo<ProductSummary | null>(() => {
+    if (!needle) return null
+    const rows = sel.filter((r) => r.group.toLowerCase().includes(needle) || r.base.toLowerCase().includes(needle) || r.name.toLowerCase().includes(needle))
+    const groups = [...new Set(rows.map((r) => r.group))]
+    if (groups.length < 2) return null
+    const days = [...new Set(rows.map((r) => r.date))].sort()
+    return {
+      group: `'${q.trim()}' 검색 결과 전체`,
+      n: rows.length,
+      amount: rows.reduce((a, r) => a + r.amount, 0),
+      order_days: days.length,
+      last: days[days.length - 1],
+      min_unit_price: round2(Math.min(...rows.map((r) => r.unit_price))),
+      max_unit_price: round2(Math.max(...rows.map((r) => r.unit_price))),
+      aliases: groups.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)),
+    }
+  }, [sel, needle, q])
 
   if (summary.products.length === 0) {
     return (
@@ -31,29 +57,48 @@ export function Detail({ period, sel, summary }: { period: Period; sel: Enriched
     )
   }
 
-  const cur = products.find((p) => p.group === picked) ?? products[0]
-  const lines = cur
-    ? sel
-        .filter((r) => r.group === cur.group)
-        .sort((a, b) => (a.dt < b.dt ? -1 : a.dt > b.dt ? 1 : a.idx - b.idx))
-    : []
+  // 기본 선택: 검색 중이면 "전체", 아니면 첫 품목. 아래 개별 품목을 누르면 그 품목만 본다
+  const cur = (picked ? products.find((p) => p.group === picked) : null) ?? allView ?? products[0]
+  const isAll = !!cur && cur === allView
+  const lines = !cur
+    ? []
+    : isAll
+      ? sel
+          .filter((r) => r.group.toLowerCase().includes(needle) || r.base.toLowerCase().includes(needle) || r.name.toLowerCase().includes(needle))
+          .sort((a, b) => (a.dt < b.dt ? -1 : a.dt > b.dt ? 1 : a.idx - b.idx))
+      : sel.filter((r) => r.group === cur.group).sort((a, b) => (a.dt < b.dt ? -1 : a.dt > b.dt ? 1 : a.idx - b.idx))
   const days = [...new Set(lines.map((l) => l.date))].sort()
   const gaps = days.slice(1).map((d, i) => daysBetween(days[i], d))
-  const plan = planBuckets(from, to)
-  const lab = labeler(from, to)
+  const [cf0, ct0] = [cFrom ?? from, cTo ?? to]
+  const [chartFrom, chartTo] = cf0 > ct0 ? [ct0, cf0] : [cf0, ct0]
+  const force = unit === 'auto' ? undefined : unit
+  const plan = planBuckets(chartFrom, chartTo, force)
+  const lab = labeler(chartFrom, chartTo, force)
+  // 그래프는 위쪽 기간과 별개로 자기 기간의 구매를 다시 모은다(같은 상태 필터 적용)
+  const inView = (r: EnrichedRow) =>
+    isAll ? r.group.toLowerCase().includes(needle) || r.base.toLowerCase().includes(needle) || r.name.toLowerCase().includes(needle) : !!cur && r.group === cur.group
+  const chartLines = selectRows(app.prep.kept, chartFrom, chartTo, period.status).filter(inView)
   const pb: Record<string, { a: number; n: number }> = {}
   for (const k of plan.keys) pb[k] = { a: 0, n: 0 }
-  for (const l of lines) {
+  for (const l of chartLines) {
     const k = plan.keyOf(l.date)
     if (pb[k]) {
       pb[k].a += l.amount
       pb[k].n += 1
     }
   }
+  const dense = plan.keys.length > 18
+  const labelStep = Math.max(1, Math.ceil(plan.keys.length / 16))
+  const chartPresets: { label: string; from: string | null; to: string | null }[] = [
+    { label: '위에서 고른 기간', from: null, to: null },
+    { label: '전체 기간', from: app.range.start, to: app.range.end },
+    { label: '최근 12개월', from: `${addMonths(app.range.end, -11).slice(0, 7)}-01`, to: app.range.end },
+    { label: '올해', from: `${app.range.end.slice(0, 4)}-01-01`, to: app.range.end },
+  ]
   const pmax = Math.max(1, ...plan.keys.map((k) => pb[k].a))
   const minUnit = cur ? cur.min_unit_price : 0
-  const category = lines.length ? lines[lines.length - 1].category : ''
-  const futureKeys = plan.keys.filter((k) => plan.isFuture(k, app.range.end))
+  const cats = [...new Set(lines.map((l) => l.category))]
+  const category = isAll ? (cats.length === 1 ? cats[0] : `여러 카테고리 (${cats.length}개)`) : lines.length ? lines[lines.length - 1].category : ''
 
   return (
     <>
@@ -73,17 +118,33 @@ export function Detail({ period, sel, summary }: { period: Period; sel: Enriched
             </div>
             <label className="search" style={{ marginTop: 10 }}>
               <SearchIcon />
-              <input type="search" placeholder="품목 검색 (예: 펩시)" aria-label="품목 검색" value={q} onChange={(e) => setQ(e.target.value)} />
+              <input type="search" placeholder="품목 검색 (예: 펩시)" aria-label="품목 검색" value={q} onChange={(e) => { setQ(e.target.value); setPicked(null) }} />
             </label>
           </div>
           <div style={{ borderTop: '1px solid var(--line-2)', maxHeight: 640, overflowY: 'auto' }} data-testid="product-list">
-            {products.length === 0 && (
+            {products.length === 0 && !allView && (
               <div className="sub" style={{ padding: 20 }}>
                 검색 결과가 없습니다.
               </div>
             )}
+            {allView && (
+              <button type="button" data-testid="all-item" className={'listbtn' + (isAll ? ' on' : '')} aria-pressed={isAll} onClick={() => setPicked(null)} style={{ background: isAll ? undefined : 'var(--surface-2)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
+                  <span className="ellipsis" style={{ fontSize: 14, fontWeight: 700 }}>
+                    {allView.group}
+                  </span>
+                  <span style={{ fontSize: 14, fontWeight: 700, whiteSpace: 'nowrap' }}>{fmt(allView.amount)}원</span>
+                </div>
+                <div className="sub" style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 3, fontSize: 12 }}>
+                  <span>
+                    {allView.n}건 · {allView.aliases.length}개 품목 합계
+                  </span>
+                  <span>개당 {fmt(allView.min_unit_price)}원~</span>
+                </div>
+              </button>
+            )}
             {products.map((p) => (
-              <button key={p.group} type="button" className={'listbtn' + (cur && cur.group === p.group ? ' on' : '')} aria-pressed={cur && cur.group === p.group} onClick={() => setPicked(p.group)}>
+              <button key={p.group} type="button" className={'listbtn' + (cur && !isAll && cur.group === p.group ? ' on' : '')} aria-pressed={!!cur && !isAll && cur.group === p.group} onClick={() => setPicked(p.group)}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'baseline' }}>
                   <span className="ellipsis" style={{ fontSize: 14, fontWeight: 600 }}>
                     {p.group}
@@ -113,6 +174,7 @@ export function Detail({ period, sel, summary }: { period: Period; sel: Enriched
                     {cur.group}
                   </h2>
                 </div>
+                {!isAll && (
                 <button type="button" className="btn sm" onClick={() => setMergeOpen(true)}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M8 3H5a2 2 0 00-2 2v3" />
@@ -122,12 +184,13 @@ export function Detail({ period, sel, summary }: { period: Period; sel: Enriched
                   </svg>
                   다른 이름 합치기
                 </button>
+                )}
               </div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 12 }}>
                 <span className="sub" style={{ fontSize: 12 }}>
-                  주문목록상 이름
+                  {isAll ? `포함된 품목 ${cur.aliases.length}개 · 한 번만 산 품목도 포함` : '주문목록상 이름'}
                 </span>
-                {cur.aliases.map((a) => (
+                {(isAll ? cur.aliases.slice(0, 12) : cur.aliases).map((a) => (
                   <span key={a} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, height: 28, padding: '0 10px', borderRadius: 14, background: '#f1f2f4', fontSize: 12, color: 'var(--ink-2)' }} data-testid="alias">
                     {a}
                     {app.stored.merges[a] && (
@@ -143,6 +206,12 @@ export function Detail({ period, sel, summary }: { period: Period; sel: Enriched
                   </span>
                 ))}
               </div>
+
+              {isAll && cur.aliases.length > 12 && (
+                <div className="sub" style={{ fontSize: 12, marginTop: 6 }}>
+                  … 외 {cur.aliases.length - 12}개 품목은 아래 구매 이력에서 확인할 수 있습니다
+                </div>
+              )}
 
               <div className="stat4" style={{ marginTop: 18 }}>
                 <div>
@@ -178,39 +247,87 @@ export function Detail({ period, sel, summary }: { period: Period; sel: Enriched
                 </div>
               </div>
 
-              <div style={{ marginTop: 20 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-                  <h3 style={{ fontSize: 14, fontWeight: 700 }}>{lab.yearly ? '연도별' : '월별'} 구매</h3>
+              <div style={{ marginTop: 20 }} data-testid="detail-chart">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8 }}>
+                  <h3 style={{ fontSize: 14, fontWeight: 700 }} data-testid="chart-title">
+                    {lab.yearly ? '연도별' : '월별'} 구매 · {dot(chartFrom)} – {dot(chartTo)}
+                  </h3>
                   <span className="sub" style={{ fontSize: 12 }}>
-                    막대 위 = 지출(원) · 아래 = 구매 건수
+                    {dense ? '막대에 마우스를 올리면 금액과 건수가 보입니다' : '막대 위 = 지출(원) · 아래 = 구매 건수'}
                   </span>
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${plan.keys.length}, minmax(0, 1fr))`, gap: 6, alignItems: 'end', height: 180, marginTop: 12, borderBottom: '1px solid #c9cdd5' }} role="img" aria-label="품목 구매 막대 그래프">
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginTop: 10 }}>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }} role="group" aria-label="그래프 기간 바로 선택">
+                    {chartPresets.map((c) => {
+                      const on = c.from === null ? cFrom === null && cTo === null : cFrom === c.from && cTo === c.to
+                      return (
+                        <button
+                          key={c.label}
+                          type="button"
+                          className={'pill' + (on ? ' on' : '')}
+                          style={{ height: 32, fontSize: 13, padding: '0 10px' }}
+                          aria-pressed={on}
+                          onClick={() => {
+                            setCFrom(c.from)
+                            setCTo(c.to)
+                          }}
+                        >
+                          {c.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <label className="field">
+                    그래프 시작일
+                    <input className="input" style={{ height: 34 }} type="date" data-testid="chart-from" value={chartFrom} onChange={(e) => e.target.value && setCFrom(e.target.value)} />
+                  </label>
+                  <label className="field">
+                    그래프 종료일
+                    <input className="input" style={{ height: 34 }} type="date" data-testid="chart-to" value={chartTo} onChange={(e) => e.target.value && setCTo(e.target.value)} />
+                  </label>
+                  <div className="seg" style={{ width: 240, gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }} role="group" aria-label="그래프 단위">
+                    {([['auto', '자동'], ['month', '월별'], ['year', '연도별']] as const).map(([k, label]) => (
+                      <button key={k} type="button" className={unit === k ? 'on' : ''} aria-pressed={unit === k} data-testid={`chart-unit-${k}`} onClick={() => setUnit(k)} style={{ height: 30 }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${plan.keys.length}, minmax(0, 1fr))`, gap: dense ? 2 : 6, alignItems: 'end', height: 180, marginTop: 12, borderBottom: '1px solid #c9cdd5' }} role="img" aria-label="품목 구매 막대 그래프">
                   {plan.keys.map((k) => {
                     const fut = plan.isFuture(k, app.range.end)
                     return (
-                      <div key={k} style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4, minWidth: 0 }}>
-                        <span className="bar-val" style={{ color: fut ? '#6b7180' : 'var(--ink)' }}>
-                          {fut ? '—' : pb[k].a ? fmt(pb[k].a) : ''}
-                        </span>
-                        <div className="bar" style={{ maxWidth: 40, height: fut || !pb[k].a ? 0 : Math.max(4, Math.round((pb[k].a / pmax) * 140)) }} />
+                      <div
+                        key={k}
+                        data-testid="pbar"
+                        title={fut ? `${lab.label(k)}: 데이터 없음` : `${lab.label(k)}: ${fmt(pb[k].a)}원, ${pb[k].n}건`}
+                        style={{ height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', gap: 4, minWidth: 0 }}
+                      >
+                        {!dense && (
+                          <span className="bar-val" style={{ color: fut ? '#6b7180' : 'var(--ink)' }}>
+                            {fut ? '—' : pb[k].a ? fmt(pb[k].a) : ''}
+                          </span>
+                        )}
+                        <div className="bar" style={{ maxWidth: 40, height: fut || !pb[k].a ? 0 : Math.max(4, Math.round((pb[k].a / pmax) * (dense ? 160 : 140))) }} />
                       </div>
                     )
                   })}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${plan.keys.length}, minmax(0, 1fr))`, gap: 6, marginTop: 6 }} aria-hidden="true">
-                  {plan.keys.map((k) => (
+                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${plan.keys.length}, minmax(0, 1fr))`, gap: dense ? 2 : 6, marginTop: 6 }} aria-hidden="true">
+                  {plan.keys.map((k, i) => (
                     <div key={k} style={{ textAlign: 'center', minWidth: 0 }}>
-                      <div style={{ fontSize: 12, color: 'var(--ink-2)', fontWeight: 500 }}>{lab.label(k)}</div>
-                      <div className="sub" style={{ fontSize: 11, marginTop: 1 }}>
-                        {plan.isFuture(k, app.range.end) ? '' : `${pb[k].n}건`}
-                      </div>
+                      <div style={{ fontSize: dense ? 10 : 12, color: 'var(--ink-2)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'visible' }}>{i % labelStep === 0 ? lab.label(k) : ''}</div>
+                      {!dense && (
+                        <div className="sub" style={{ fontSize: 11, marginTop: 1 }}>
+                          {plan.isFuture(k, app.range.end) ? '' : `${pb[k].n}건`}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
                 <div className="sub" style={{ fontSize: 12, marginTop: 10 }}>
-                  {to > app.range.end && `데이터는 ${dot(app.range.end)}까지입니다${futureKeys.length ? ` · ${futureKeys.map(lab.label).join('·')}은 아직 없음` : ''}. `}
-                  {lab.yearly && '18개월이 넘는 기간은 연도별로 묶어 보여 줍니다.'}
+                  {chartTo > app.range.end && `데이터는 ${dot(app.range.end)}까지입니다. `}
+                  {unit === 'auto' && lab.yearly && '18개월이 넘는 기간은 자동으로 연도별로 묶습니다. 월별로 보려면 위의 월별 버튼을 누르거나 그래프 기간을 줄이세요.'}
                 </div>
               </div>
             </div>

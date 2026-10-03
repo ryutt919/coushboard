@@ -25,9 +25,9 @@ export interface BucketPlan {
 }
 
 /** 기간이 18개월 이하면 월별, 넘으면 연도별 */
-export function planBuckets(from: string, to: string): BucketPlan {
+export function planBuckets(from: string, to: string, force?: 'year' | 'month'): BucketPlan {
   const months = monthsBetween(from, to)
-  const yearly = months.length > 18
+  const yearly = force ? force === 'year' : months.length > 18
   const keys = yearly ? [...new Set(months.map((m) => m.slice(0, 4)))] : months
   return {
     granularity: yearly ? 'year' : 'month',
