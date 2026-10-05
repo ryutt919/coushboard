@@ -728,7 +728,7 @@ function DataManagement() {
     <section className="card card-pad" aria-label="데이터 관리" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <h2 className="h2">내 데이터 관리</h2>
       <p className="sub" style={{ margin: 0, lineHeight: 1.6 }}>
-        {app.mode === 'demo' && '예시 화면에서는 아무것도 서버에 저장하지 않습니다. '}저장되는 것: 주문목록 원본 행, 영수증(카드번호·승인번호·할부는 제외), 업로드 이력, 내가 만든 카테고리 규칙·지정·품목 합치기. 계산 결과는 저장하지 않습니다.
+        {app.mode === 'demo' && '예시 화면에서는 아무것도 서버에 저장하지 않습니다. '}{app.isExtension && '이 확장은 서버로 아무것도 보내지 않고 이 브라우저(chrome.storage.local)에만 저장합니다. '}저장되는 것: 주문목록 원본 행, 영수증(카드번호·승인번호·할부는 제외), 업로드 이력, 내가 만든 카테고리 규칙·지정·품목 합치기. 계산 결과는 저장하지 않습니다.
       </p>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <button type="button" className="btn sm" onClick={() => void exportJson()}>

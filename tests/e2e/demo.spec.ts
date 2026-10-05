@@ -1,9 +1,11 @@
-import { expect, test } from '@playwright/test'
+import { expect } from '@playwright/test'
+import { EXT, openDemo, test } from './fixtures'
 import { allowedHost, expectNoSeriousA11y, trackHosts } from './helpers'
 
 // 예시(mock) 화면: 서버 없이 동작해야 한다. 가입 없이 누구나 볼 수 있다.
 test.describe('예시 화면 (mock 데이터)', () => {
   test('로그아웃 상태에서는 로그인 화면만 보이고 데이터 요청이 없다', async ({ page, baseURL }) => {
+    test.skip(EXT, '확장에는 로그인이 없다')
     const net = trackHosts(page)
     for (const hash of ['#/', '#/upload', '#/categories']) {
       await page.goto('/' + hash)
@@ -20,8 +22,7 @@ test.describe('예시 화면 (mock 데이터)', () => {
     page.on('pageerror', (e) => errors.push(e.message))
     page.on('console', (m) => m.type() === 'error' && errors.push(m.text()))
 
-    await page.goto('/')
-    await page.getByRole('button', { name: '예시 화면 보기' }).click()
+    await openDemo(page)
     await expect(page.getByTestId('kpi-total')).toContainText('원')
     const total = await page.getByTestId('kpi-total').innerText()
 
@@ -73,8 +74,7 @@ test.describe('예시 화면 (mock 데이터)', () => {
   })
 
   test('결제 내역을 거래일시, 1개당 가격, 금액으로 정렬할 수 있다', async ({ page }) => {
-    await page.goto('/')
-    await page.getByRole('button', { name: '예시 화면 보기' }).click()
+    await openDemo(page)
     await page.getByTestId('kpi-total').waitFor()
     // 전체 순서를 확인하려고 카테고리 묶기는 끈다(묶기는 아래 별도 테스트에서 확인)
     await page.getByTestId('group-toggle').click()
@@ -124,8 +124,7 @@ test.describe('예시 화면 (mock 데이터)', () => {
   })
 
   test('결제 내역은 기본으로 카테고리별로 묶이고, 묶음 안에서 정렬되며, 끄면 전체가 한 줄로 이어진다', async ({ page }) => {
-    await page.goto('/')
-    await page.getByRole('button', { name: '예시 화면 보기' }).click()
+    await openDemo(page)
     await page.getByTestId('kpi-total').waitFor()
     await expect(page.getByTestId('group-toggle')).toHaveAttribute('aria-pressed', 'true')
 
@@ -166,8 +165,7 @@ test.describe('예시 화면 (mock 데이터)', () => {
   })
 
   test('상단 기간 선택에 데이터가 있는 연도별 버튼이 있고, 누르면 그 해로 기간이 바뀐다', async ({ page }) => {
-    await page.goto('/')
-    await page.getByRole('button', { name: '예시 화면 보기' }).click()
+    await openDemo(page)
     await page.getByTestId('kpi-total').waitFor()
 
     // 예시 데이터는 2024-11 ~ 2026-09: 2026, 2025, 2024 순서로, 데이터가 없는 해(2023, 2027)는 없다
@@ -206,8 +204,7 @@ test.describe('예시 화면 (mock 데이터)', () => {
   })
 
   test('세부 내역: 검색하면 일치하는 모든 품목의 합계가 기본으로 보이고, 개별 품목도 고를 수 있다', async ({ page }) => {
-    await page.goto('/')
-    await page.getByRole('button', { name: '예시 화면 보기' }).click()
+    await openDemo(page)
     await page.getByTestId('kpi-total').waitFor()
     await page.getByRole('tab', { name: '세부 내역' }).click()
     await page.getByRole('searchbox', { name: '품목 검색' }).fill('샘플')
@@ -244,8 +241,7 @@ test.describe('예시 화면 (mock 데이터)', () => {
   })
 
   test('세부 내역 검색: 한 번만 산 품목도 목록에 나오고, 기간 밖의 품목은 안내하며 전체 기간으로 바꿀 수 있다', async ({ page }) => {
-    await page.goto('/')
-    await page.getByRole('button', { name: '예시 화면 보기' }).click()
+    await openDemo(page)
     await page.getByTestId('kpi-total').waitFor()
     await page.getByRole('tab', { name: '세부 내역' }).click()
     const search = page.getByRole('searchbox', { name: '품목 검색' })
@@ -271,8 +267,7 @@ test.describe('예시 화면 (mock 데이터)', () => {
   })
 
   test('세부 내역 그래프: 기간을 직접 정하고 월별과 연도별을 고를 수 있다', async ({ page }) => {
-    await page.goto('/')
-    await page.getByRole('button', { name: '예시 화면 보기' }).click()
+    await openDemo(page)
     await page.getByTestId('kpi-total').waitFor()
     await page.getByRole('tab', { name: '세부 내역' }).click()
     const bars = page.getByTestId('pbar')
@@ -313,8 +308,7 @@ test.describe('예시 화면 (mock 데이터)', () => {
   })
 
   test('세부 내역 그래프: 막대에 마우스를 올리면 금액과 건수가 보이고, 데이터 없는 구간은 x축에서 줄어든다', async ({ page }) => {
-    await page.goto('/')
-    await page.getByRole('button', { name: '예시 화면 보기' }).click()
+    await openDemo(page)
     await page.getByTestId('kpi-total').waitFor()
     await page.getByRole('tab', { name: '세부 내역' }).click()
     await page.getByTestId('chart-unit-month').click()
@@ -356,8 +350,7 @@ test.describe('예시 화면 (mock 데이터)', () => {
   })
 
   test('카테고리 정리는 받은 상품만 다루고, 카테고리를 직접 추가할 수 있다', async ({ page }) => {
-    await page.goto('/')
-    await page.getByRole('button', { name: '예시 화면 보기' }).click()
+    await openDemo(page)
     await page.getByTestId('kpi-total').waitFor()
 
     // 대시보드의 "받은 상품만" 건수와 카테고리 정리의 전체 건수가 같다(반품, 취소 제외)
@@ -399,9 +392,13 @@ test.describe('예시 화면 (mock 데이터)', () => {
   })
 
   test('키보드만으로 탭과 버튼을 조작할 수 있다', async ({ page }) => {
-    await page.goto('/')
-    await page.getByRole('button', { name: '예시 화면 보기' }).focus()
-    await page.keyboard.press('Enter')
+    if (EXT) {
+      await openDemo(page) // 확장에는 예시 화면 버튼이 없어 데이터를 넣고 바로 대시보드에서 시작한다
+    } else {
+      await page.goto('/')
+      await page.getByRole('button', { name: '예시 화면 보기' }).focus()
+      await page.keyboard.press('Enter')
+    }
     await expect(page.getByTestId('kpi-total')).toBeVisible()
     await page.getByRole('tab', { name: '세부 내역' }).focus()
     await page.keyboard.press('Enter')
@@ -412,8 +409,8 @@ test.describe('예시 화면 (mock 데이터)', () => {
   })
 
   test('예시 화면을 끝내면 로그인 화면으로 돌아간다', async ({ page }) => {
-    await page.goto('/')
-    await page.getByRole('button', { name: '예시 화면 보기' }).click()
+    test.skip(EXT, '확장에는 예시 화면과 로그인이 없다')
+    await openDemo(page)
     await page.getByTestId('kpi-total').waitFor()
     await page.getByRole('button', { name: '예시 끝내기' }).click()
     await expect(page.getByRole('heading', { name: '로그인' })).toBeVisible()

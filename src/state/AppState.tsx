@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { type Backend, MemoryBackend } from '../lib/backend'
+import { ChromeBackend, STORAGE_KEYS } from '../lib/chromeBackend'
 import { demoStored } from '../lib/demo'
 import { dataRange, prepareRows, type Prepared } from '../lib/pipeline'
 import { supabase, supabaseConfigured } from '../lib/supabase'
@@ -15,6 +16,9 @@ import type { OrderRow, ReceiptRow, RulesConfig, Settings } from '../lib/types'
 
 type Mode = 'loading' | 'out' | 'user' | 'demo'
 
+/** 확장 대시보드 빌드(vite.extension.config.ts)에서만 true. 로그인 없이 chrome.storage.local 에 저장한다 */
+export const IS_EXTENSION = import.meta.env.VITE_TARGET === 'extension'
+
 export interface Toast {
   text: string
   err?: boolean
@@ -22,6 +26,8 @@ export interface Toast {
 
 interface Ctx {
   mode: Mode
+  /** 확장 대시보드이면 true(로그인, 예시 화면 없음, 데이터는 이 브라우저에만 저장) */
+  isExtension: boolean
   email: string | null
   supabaseConfigured: boolean
   loading: boolean
@@ -63,7 +69,7 @@ export function useApp(): Ctx {
 }
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [mode, setMode] = useState<Mode>(supabaseConfigured ? 'loading' : 'out')
+  const [mode, setMode] = useState<Mode>(IS_EXTENSION ? 'user' : supabaseConfigured ? 'loading' : 'out')
   const [email, setEmail] = useState<string | null>(null)
   const [stored, setStored] = useState<StoredData>(emptyStored)
   const [loading, setLoading] = useState(false)
@@ -79,10 +85,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
     toastTimer.current = window.setTimeout(() => setToast(null), err ? 6000 : 3000)
   }, [])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (quiet = false) => {
     const b = backend.current
     if (!b) return
-    setLoading(true)
+    if (!quiet) setLoading(true)
     setLoadError(null)
     try {
       setStored(await b.load())
@@ -90,9 +96,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : '데이터를 읽지 못했습니다.')
     } finally {
-      setLoading(false)
+      if (!quiet) setLoading(false)
     }
   }, [])
+
+  // 확장: 저장소를 바로 열고, 수집이나 다른 탭에서 저장이 바뀌면 화면을 조용히 다시 읽는다
+  useEffect(() => {
+    if (!IS_EXTENSION) return
+    backend.current = new ChromeBackend()
+    void load()
+    let timer: number | undefined
+    const onChanged = (changes: Record<string, unknown>, area: string) => {
+      if (area !== 'local' || !STORAGE_KEYS.some((k) => k in changes)) return
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => void load(true), 400)
+    }
+    chrome.storage.onChanged.addListener(onChanged)
+    return () => {
+      window.clearTimeout(timer)
+      chrome.storage.onChanged.removeListener(onChanged)
+    }
+  }, [load])
 
   // 로그인 세션 감시. 로그아웃하면 메모리의 데이터를 모두 비운다.
   useEffect(() => {
@@ -161,6 +185,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const value: Ctx = {
     mode,
+    isExtension: IS_EXTENSION,
     email,
     supabaseConfigured,
     loading,
@@ -176,7 +201,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     enterDemo,
     leaveDemo,
     signOut,
-    reload: load,
+    reload: () => load(),
     setRowOverride: (key, category) =>
       run((b) => b.setRowOverride(key, category), (s) => ({ ...s, overrides: { ...s.overrides, row: setRecord(s.overrides.row, key, category) } })),
     setGroupOverride: (base, category) =>

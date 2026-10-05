@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { OK_STATUSES } from '../lib/types'
+import { CollectBar } from '../extension/CollectBar'
 import { useApp } from '../state/AppState'
 
 export type Route = 'dashboard' | 'upload' | 'categories'
@@ -8,6 +9,8 @@ export function Layout({ route, children, actions }: { route: Route; children: R
   const app = useApp()
   const unclassified = app.prep.kept.filter((r) => OK_STATUSES.has(r.status) && r.category === app.settings.rules.fallback).length
   const demo = app.mode === 'demo'
+  const ext = app.isExtension
+  const who = ext ? '이 브라우저에만 저장' : app.email ?? ''
   return (
     <div className="shell">
       <header className="header">
@@ -26,10 +29,10 @@ export function Layout({ route, children, actions }: { route: Route; children: R
               </div>
               <div className="brand-sub" data-testid="header-sub">
                 {app.hasData
-                  ? `${demo ? '가짜 예시 데이터' : app.email ?? ''} · 주문 ${app.prep.orderCount}건 · 상품 ${app.prep.rawCount}행`
+                  ? `${demo ? '가짜 예시 데이터' : who} · 주문 ${app.prep.orderCount}건 · 상품 ${app.prep.rawCount}행`
                   : demo
                     ? '가짜 예시 데이터'
-                    : app.email ?? ''}
+                    : who}
               </div>
             </div>
           </a>
@@ -56,7 +59,7 @@ export function Layout({ route, children, actions }: { route: Route; children: R
                 CSV 올리기
               </a>
             )}
-            {demo ? (
+            {ext ? null : demo ? (
               <button type="button" className="btn" onClick={app.leaveDemo}>
                 예시 끝내기
               </button>
@@ -78,6 +81,7 @@ export function Layout({ route, children, actions }: { route: Route; children: R
           </div>
         </div>
       )}
+      {ext && <CollectBar />}
       {children}
       {app.toast && (
         <div className={'toast' + (app.toast.err ? ' err' : '')} role="status">

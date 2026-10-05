@@ -20,3 +20,6 @@ handoff/
 
 .vercel
 .env*
+
+# 확장 대시보드 빌드 결과(npm run build:ext 로 만든다)
+coupang-ledger-ext/app/

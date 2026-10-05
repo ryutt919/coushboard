@@ -18,6 +18,8 @@ export function trackHosts(page: Page): { hosts: Set<string>; urls: string[] } {
 }
 
 export function allowedHost(h: string, base: string): boolean {
+  // 확장 모드(E2E_MODE=extension): 확장 자기 자신(chrome-extension://<id>) 외에는 어디에도 요청하지 않아야 한다
+  if (process.env.E2E_EXT_ID) return h === process.env.E2E_EXT_ID
   return h === new URL(base).host || /\.supabase\.co$/.test(h)
 }
 
