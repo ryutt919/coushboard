@@ -6,6 +6,8 @@ dist/
 *.csv
 *.xlsx
 !tests/fixtures/*.csv
+!coupang-ledger-ext/test/fixtures/*.csv
+*.zip
 /data/
 verify-output/
 test-results/

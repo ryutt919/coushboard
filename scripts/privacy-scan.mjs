@@ -32,7 +32,10 @@ function listFiles() {
 }
 
 const files = listFiles()
-const isFixture = (f) => f.split(sep).join('/').startsWith('tests/fixtures/')
+const isFixture = (f) => {
+  const p = f.split(sep).join('/')
+  return p.startsWith('tests/fixtures/') || p.startsWith('coupang-ledger-ext/test/fixtures/')
+}
 const textExt = /\.(ts|tsx|js|mjs|cjs|json|html|css|sql|yml|yaml|md|txt|py|svg|toml|env|example)$/i
 
 // 1. 픽스처 밖의 CSV/XLSX
