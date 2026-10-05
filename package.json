@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "build:ext": "tsc -b && vite build --config vite.extension.config.ts",
     "preview": "vite preview",
     "lint": "eslint src tests scripts",
     "typecheck": "tsc -b --noEmit",
@@ -17,8 +16,6 @@
     "test:oracle": "vitest run tests/oracle.test.ts",
     "test:db": "vitest run tests/db",
     "test:e2e": "playwright test",
-    "test:e2e:ext": "npm run build:ext && playwright test -c playwright.extension.config.ts",
-    "test:ext": "node coupang-ledger-ext/test/adapter.test.mjs && node coupang-ledger-ext/test/engine.test.mjs",
     "privacy": "node scripts/privacy-scan.mjs",
     "verify:real": "tsx scripts/verify-real.ts",
     "verify": "node scripts/verify.mjs"

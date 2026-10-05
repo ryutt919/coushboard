@@ -1,7 +1,6 @@
-import { expect, type Page } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
-import { EXT, test } from './fixtures'
 import { allowedHost, expectNoSeriousA11y, FIX, trackHosts } from './helpers'
 
 // 실제 Supabase(로컬 스택 또는 테스트 프로젝트) + 테스트 사용자. 픽스처만 사용한다.
@@ -14,11 +13,6 @@ const password = process.env.E2E_PASSWORD ?? 'Test-pass-12345!'
 
 async function login(page: Page) {
   await page.goto('/')
-  if (EXT) {
-    // 확장: 로그인 없이 바로 대시보드. 데이터는 이 브라우저(chrome.storage.local)에만 있다
-    await expect(page.getByTestId('collect-bar')).toBeVisible()
-    return
-  }
   if (demo) {
     await page.getByRole('button', { name: '예시 화면 보기' }).click()
     await expect(page.getByRole('button', { name: '예시 끝내기' })).toBeVisible()
@@ -62,7 +56,7 @@ const total = (page: Page) => page.getByTestId('kpi-total')
 const allPeriod = (page: Page) => page.getByRole('button', { name: '전체', exact: true }).click()
 
 test.describe.configure({ mode: 'serial' })
-test.skip(!email && !demo && !EXT, 'E2E_EMAIL이 없어 건너뜁니다 (로컬 Supabase 스택 또는 테스트 사용자 필요)')
+test.skip(!email && !demo, 'E2E_EMAIL이 없어 건너뜁니다 (로컬 Supabase 스택 또는 테스트 사용자 필요)')
 
 test.describe('H5: 화면 E2E (Supabase)', () => {
   test.beforeEach(async ({ page }) => {
@@ -129,7 +123,6 @@ test.describe('H5: 화면 E2E (Supabase)', () => {
     await page.reload()
     await page.getByRole('searchbox', { name: '상품명 검색' }).fill('에그밥솥')
     await expect(page.getByTestId('row').first()).toContainText('디지털·전자')
-    if (EXT) return // 확장에는 로그아웃이 없다. 새로고침 후에도 유지되면 충분하다
 
     await page.getByRole('button', { name: '로그아웃' }).click()
     await expect(page.getByRole('heading', { name: '로그인' })).toBeVisible()
@@ -255,7 +248,7 @@ test.describe('H5: 화면 E2E (Supabase)', () => {
   })
 
   test('12: 로그아웃 상태 새 브라우저에서 접근하면 로그인 화면이고 데이터 요청은 0건이다', async ({ browser, baseURL }) => {
-    test.skip(demo || EXT, '로그인 화면 검사는 demo.spec에서 한다(확장에는 로그인이 없다)')
+    test.skip(demo, '로그인 화면 검사는 demo.spec에서 한다')
     const ctx = await browser.newContext()
     const p = await ctx.newPage()
     const net = trackHosts(p)

@@ -112,7 +112,7 @@ export function EditPanel({ row, onClose }: { row: EnrichedRow; onClose: () => v
       )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
         <span className="sub" style={{ fontSize: 12 }}>
-          {app.mode === 'demo' ? '예시 화면이라 저장되지 않고 이 탭에만 반영됩니다' : app.isExtension ? '이 브라우저에 저장됩니다' : '내 계정에 저장됩니다 · 다른 기기에서도 그대로 보입니다'}
+          {app.mode === 'demo' ? '예시 화면이라 저장되지 않고 이 탭에만 반영됩니다' : '내 계정에 저장됩니다 · 다른 기기에서도 그대로 보입니다'}
           {row.amount > 0 && ` · 이 행 ${fmt(row.amount)}원`}
         </span>
         <div style={{ display: 'flex', gap: 8 }}>

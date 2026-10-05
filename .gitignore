@@ -6,8 +6,6 @@ dist/
 *.csv
 *.xlsx
 !tests/fixtures/*.csv
-!coupang-ledger-ext/test/fixtures/*.csv
-*.zip
 /data/
 verify-output/
 test-results/
@@ -20,6 +18,3 @@ handoff/
 
 .vercel
 .env*
-
-# 확장 대시보드 빌드 결과(npm run build:ext 로 만든다)
-coupang-ledger-ext/app/
