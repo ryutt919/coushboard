@@ -24,4 +24,5 @@
 node test/pipeline.test.mjs   # 오라클 픽스처와 일치
 node test/engine.test.mjs     # 수집 엔진·병합
 node test/adapter.test.mjs    # 쿠팡 어댑터(합성 응답)
+node test/e2e_collect.mjs     # Playwright Chromium 에 확장 로드, 합성 쿠팡 응답으로 팝업 수집부터 대시보드까지
 node test/e2e.mjs             # 실제 Chromium에 확장 로드
